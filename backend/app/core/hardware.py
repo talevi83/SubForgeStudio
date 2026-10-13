@@ -1,7 +1,43 @@
 import os
+import sys
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Dict, Any, Optional
+
+
+def setup_cuda_dll_paths() -> None:
+    """Preload NVIDIA CUDA/cuBLAS/cuDNN DLLs on Windows into process space."""
+    if sys.platform != "win32":
+        return
+
+    import ctypes
+    site_packages = Path(sys.prefix) / "Lib" / "site-packages"
+    nvidia_dir = site_packages / "nvidia"
+    if not nvidia_dir.exists():
+        return
+
+    bin_dirs = list(nvidia_dir.glob("*/bin"))
+    for b in bin_dirs:
+        try:
+            os.add_dll_directory(str(b))
+        except Exception:
+            pass
+
+    if bin_dirs:
+        os.environ["PATH"] = ";".join(str(b) for b in bin_dirs) + ";" + os.environ.get("PATH", "")
+
+    # Preload cuBLAS and cuDNN DLLs into memory
+    for b in bin_dirs:
+        for dll_file in b.glob("*.dll"):
+            try:
+                ctypes.CDLL(str(dll_file))
+            except Exception:
+                pass
+
+
+# Execute DLL setup immediately
+setup_cuda_dll_paths()
 
 try:
     import ctranslate2

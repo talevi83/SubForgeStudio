@@ -2,6 +2,20 @@ import asyncio
 import math
 import logging
 from typing import List, Optional
+
+# Fix compatibility between PyAV (av>=14.0) and faster-whisper where metadata_errors was removed
+try:
+    import av
+    _orig_av_open = av.open
+
+    def _safe_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
+
+    av.open = _safe_av_open
+except Exception:
+    pass
+
 from faster_whisper import WhisperModel
 
 from app.core.config import settings
@@ -44,16 +58,31 @@ class FasterWhisperTranscriber(BaseTranscriber):
         self._model: Optional[WhisperModel] = None
 
     def _get_or_load_model(self) -> WhisperModel:
-        """Load Faster-Whisper model on demand and cache instance."""
+        """Load Faster-Whisper model on demand and cache instance with graceful CPU fallback."""
         if self._model is None:
             logger.info(
                 f"Loading Faster-Whisper model '{self.model_name}' on {self.device} ({self.compute_type})..."
             )
-            self._model = WhisperModel(
-                self.model_name,
-                device=self.device,
-                compute_type=self.compute_type,
-            )
+            try:
+                self._model = WhisperModel(
+                    self.model_name,
+                    device=self.device,
+                    compute_type=self.compute_type,
+                )
+            except Exception as e:
+                if self.device == "cuda":
+                    logger.warning(
+                        f"Failed to initialize Faster-Whisper on CUDA ({e}). Falling back to CPU INT8..."
+                    )
+                    self.device = "cpu"
+                    self.compute_type = "int8"
+                    self._model = WhisperModel(
+                        self.model_name,
+                        device="cpu",
+                        compute_type="int8",
+                    )
+                else:
+                    raise e
         return self._model
 
     async def transcribe(
