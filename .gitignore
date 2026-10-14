@@ -11,6 +11,8 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+*.env
+
 # Node
 node_modules/
 frontend/node_modules/
@@ -30,3 +32,6 @@ storage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Scratch folder for files queued for manual deletion
+_to_delete/

@@ -1,101 +1,198 @@
-import type { SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment } from '../types';
+import type { SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
+async function request<T>(url: string, init?: RequestInit, fallbackError = 'Request failed'): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: fallbackError }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : fallbackError);
+  }
+  return res.json();
+}
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
 export const api = {
-  async getSystemInfo(): Promise<SystemInfo> {
-    const res = await fetch(`${API_BASE}/system/info`);
-    if (!res.ok) throw new Error('Failed to load system info');
-    return res.json();
+  getSystemInfo(): Promise<SystemInfo> {
+    return request(`${API_BASE}/system/info`, undefined, 'Failed to load system info');
   },
 
-  async probePath(filePath: string): Promise<ProbeResponse> {
-    const res = await fetch(`${API_BASE}/media/probe-path`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_path: filePath }),
+  probePath(filePath: string): Promise<ProbeResponse> {
+    return request(`${API_BASE}/media/probe-path`, json('POST', { file_path: filePath }), 'Failed to inspect file path');
+  },
+
+  /** Returns the probe of an identical earlier upload (same name + size), or null. */
+  findExistingUpload(file: File): Promise<ProbeResponse | null> {
+    const params = new URLSearchParams({ name: file.name, size: String(file.size) });
+    return request<ProbeResponse | null>(`${API_BASE}/media/upload/existing?${params}`).catch(() => null);
+  },
+
+  /** Upload with progress reporting (fetch() can't report upload progress). */
+  uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<ProbeResponse> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/media/upload`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        let body: any = null;
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          /* ignore */
+        }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+        else reject(new Error(body?.detail || 'Upload failed'));
+      };
+      xhr.onerror = () => reject(new Error('Upload failed (network error)'));
+      const formData = new FormData();
+      formData.append('file', file);
+      xhr.send(formData);
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Failed to inspect file path' }));
-      throw new Error(err.detail || 'Failed to inspect file path');
-    }
-    return res.json();
   },
 
-  async uploadFile(file: File): Promise<ProbeResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch(`${API_BASE}/media/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
-      throw new Error(err.detail || 'Upload failed');
-    }
-    return res.json();
+  createJob(params: JobConfig & { video_path: string; file_name?: string }): Promise<Job> {
+    return request(`${API_BASE}/jobs`, json('POST', params), 'Failed to create job');
   },
 
-  async createJob(params: JobConfig & { video_path: string; file_name?: string }): Promise<Job> {
-    const res = await fetch(`${API_BASE}/jobs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Failed to create job' }));
-      throw new Error(err.detail || 'Failed to create job');
-    }
-    return res.json();
+  listJobs(): Promise<Job[]> {
+    return request(`${API_BASE}/jobs`, undefined, 'Failed to list jobs');
   },
 
-  async listJobs(): Promise<Job[]> {
-    const res = await fetch(`${API_BASE}/jobs`);
-    if (!res.ok) throw new Error('Failed to list jobs');
-    return res.json();
+  getJob(jobId: string): Promise<Job> {
+    return request(`${API_BASE}/jobs/${jobId}`, undefined, `Failed to load job ${jobId}`);
   },
 
-  async getJob(jobId: string): Promise<Job> {
-    const res = await fetch(`${API_BASE}/jobs/${jobId}`);
-    if (!res.ok) throw new Error(`Failed to load job ${jobId}`);
-    return res.json();
+  cancelJob(jobId: string): Promise<unknown> {
+    return request(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' }, 'Failed to cancel job');
   },
 
-  async cancelJob(jobId: string): Promise<any> {
-    const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
-    if (!res.ok) throw new Error('Failed to cancel job');
-    return res.json();
+  retranslate(jobId: string, options: RetranslateOptions): Promise<Job> {
+    return request(`${API_BASE}/jobs/${jobId}/translate`, json('POST', options), 'Failed to start translation');
   },
 
-  async deleteJob(jobId: string): Promise<any> {
-    const res = await fetch(`${API_BASE}/jobs/${jobId}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete job');
-    return res.json();
+  deleteJob(jobId: string): Promise<unknown> {
+    return request(`${API_BASE}/jobs/${jobId}`, { method: 'DELETE' }, 'Failed to delete job');
   },
 
-  async updateSegment(
+  updateSegment(jobId: string, segmentId: number, patch: SegmentPatch): Promise<SubtitleSegment> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/segments/${segmentId}`,
+      json('PATCH', patch),
+      'Failed to update subtitle segment'
+    );
+  },
+
+  updateSegments(jobId: string, patches: (SegmentPatch & { id: number })[]): Promise<SubtitleSegment[]> {
+    return request(`${API_BASE}/jobs/${jobId}/segments`, json('PATCH', patches), 'Failed to update subtitles');
+  },
+
+  saveGlossary(jobId: string, glossary: Glossary, profile?: string): Promise<Glossary> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/glossary`,
+      json('PUT', profile === undefined ? glossary : { ...glossary, profile }),
+      'Could not save the glossary'
+    );
+  },
+
+  listGlossaryProfiles(): Promise<string[]> {
+    return request(`${API_BASE}/glossary-profiles`, undefined, 'Could not load the series list');
+  },
+
+  storageReport(olderThanDays: number): Promise<StorageReport> {
+    return request(`${API_BASE}/storage?older_than_days=${olderThanDays}`, undefined, 'Could not read storage usage');
+  },
+
+  storageClean(categories: string[], olderThanDays?: number): Promise<StorageCleanResult> {
+    return request(
+      `${API_BASE}/storage/clean`,
+      json('POST', { categories, older_than_days: olderThanDays }),
+      'Cleanup failed',
+    );
+  },
+
+  detectSpeakers(
     jobId: string,
-    segmentId: number,
-    patch: Partial<SubtitleSegment>
-  ): Promise<SubtitleSegment> {
-    const res = await fetch(`${API_BASE}/jobs/${jobId}/segments/${segmentId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error('Failed to update subtitle segment');
-    return res.json();
+    segmentIds: number[],
+    apiKey?: string,
+    model?: string,
+    thinking?: string,
+  ): Promise<SpeakerGuess> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/detect-speakers`,
+      json('POST', {
+        segment_ids: segmentIds,
+        gemini_api_key_override: apiKey || undefined,
+        gemini_model: model || undefined,
+        thinking: thinking || undefined,
+      }),
+      'Could not detect speakers from the video',
+    );
+  },
+
+  qualityCheck(jobId: string): Promise<QAIssue[]> {
+    return request(`${API_BASE}/jobs/${jobId}/qa`, undefined, 'Quality check failed');
+  },
+
+  retimeJob(jobId: string): Promise<SegmentsChange> {
+    return request(`${API_BASE}/jobs/${jobId}/retime`, json('POST', {}), 'Timing check failed');
+  },
+
+  moveSegment(jobId: string, segmentId: number, toPosition: number): Promise<SegmentsChange> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/segments/move`,
+      json('POST', { segment_id: segmentId, to_position: toPosition }),
+      'Could not move subtitle'
+    );
+  },
+
+  getSettings(): Promise<SettingsResponse> {
+    return request(`${API_BASE}/settings`, undefined, 'Could not load settings');
+  },
+
+  saveSettings(settings: AppSettings): Promise<SettingsResponse> {
+    return request(`${API_BASE}/settings`, json('PUT', settings), 'Could not save settings');
+  },
+
+  estimateCost(params: {
+    duration_seconds: number;
+    enable_translation: boolean;
+    detect_onscreen_text: boolean;
+    has_forced_track?: boolean;
+    settings?: AppSettings;
+  }): Promise<CostEstimate> {
+    return request(`${API_BASE}/settings/estimate`, json('POST', params), 'Could not estimate cost');
+  },
+
+  checkModels(settings: AppSettings, apiKey?: string): Promise<ModelCheckResponse> {
+    return request(
+      `${API_BASE}/settings/check`,
+      json('POST', { settings, api_key: apiKey || undefined }),
+      'Could not test the models'
+    );
   },
 
   getVideoStreamUrl(jobId: string): string {
     return `${API_BASE}/media/stream/${jobId}`;
   },
 
-  getExportSrtUrl(jobId: string, useTranslated: boolean, applyRtl: boolean = true): string {
-    return `${API_BASE}/jobs/${jobId}/export/srt?use_translated=${useTranslated}&apply_rtl=${applyRtl}`;
+  getExportUrl(jobId: string, format: 'srt' | 'vtt', useTranslated: boolean, applyRtl = true): string {
+    return `${API_BASE}/jobs/${jobId}/export/${format}?use_translated=${useTranslated}&apply_rtl=${applyRtl}`;
   },
 
-  getExportVttUrl(jobId: string, useTranslated: boolean, applyRtl: boolean = true): string {
-    return `${API_BASE}/jobs/${jobId}/export/vtt?use_translated=${useTranslated}&apply_rtl=${applyRtl}`;
+  /** Detailed log of everything that happened while the job ran (summary + log lines). */
+  getJobLogUrl(jobId: string): string {
+    return `${API_BASE}/jobs/${jobId}/export/log`;
+  },
+
+  /** The backend's own log file. */
+  getServerLogUrl(): string {
+    return `${API_BASE}/system/log`;
   },
 };

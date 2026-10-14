@@ -1,38 +1,83 @@
 @import "tailwindcss";
 
-@layer base {
-  :root {
-    --bg-main: #09090b;
-    --surface-card: #18181b;
-    --surface-border: #27272a;
-    --surface-hover: #27272a;
-    --primary: #6366f1;
-    --primary-hover: #4f46e5;
-  }
+/* Semantic surface colours used by components (bg-app, bg-surface, border-line, ...) */
+@theme {
+  --color-app: #09090b;
+  --color-surface: #18181b;
+  --color-sunken: #121214;
+  --color-raised: #1d1d20;
+  --color-line: #27272a;
+}
 
+:root {
+  color-scheme: dark;
+}
+
+/*
+ * Light theme. Components are written with the dark palette in mind (text-zinc-200 on dark
+ * surfaces, text-indigo-400 accents...). Instead of duplicating every class, light mode
+ * re-maps the palette: the zinc scale is inverted and light accent shades become dark ones,
+ * so the same classes stay readable on light surfaces.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-app: #f4f4f5;
+  --color-surface: #ffffff;
+  --color-sunken: #f7f7f8;
+  --color-raised: #f4f4f5;
+  --color-line: #e4e4e7;
+
+  --color-zinc-50: oklch(14.1% 0.005 285.823);
+  --color-zinc-100: oklch(21% 0.006 285.885);
+  --color-zinc-200: oklch(27.4% 0.006 286.033);
+  --color-zinc-300: oklch(37% 0.013 285.805);
+  --color-zinc-400: oklch(44.2% 0.017 285.786);
+  --color-zinc-600: oklch(70.5% 0.015 286.067);
+  --color-zinc-700: oklch(87.1% 0.006 286.286);
+  --color-zinc-800: oklch(92% 0.004 286.32);
+  --color-zinc-900: oklch(96.7% 0.001 286.375);
+  --color-zinc-950: oklch(98.5% 0 none);
+
+  --color-indigo-200: oklch(39.8% 0.195 277.366);
+  --color-indigo-300: oklch(45.7% 0.24 277.023);
+  --color-indigo-400: oklch(51.1% 0.262 276.966);
+  --color-indigo-950: oklch(93% 0.034 272.788);
+  --color-emerald-300: oklch(50.8% 0.118 165.612);
+  --color-emerald-400: oklch(50.8% 0.118 165.612);
+  --color-amber-200: oklch(47.3% 0.137 46.201);
+  --color-amber-300: oklch(55.5% 0.163 48.998);
+  --color-amber-400: oklch(55.5% 0.163 48.998);
+  --color-rose-200: oklch(45.5% 0.188 13.697);
+  --color-rose-300: oklch(51.4% 0.222 16.935);
+  --color-rose-400: oklch(51.4% 0.222 16.935);
+  --color-rose-950: oklch(96.9% 0.015 12.422);
+  --color-cyan-200: oklch(45% 0.085 224.283);
+  --color-cyan-300: oklch(52% 0.105 223.128);
+}
+
+@layer base {
   body {
-    background-color: var(--bg-main);
-    color: #f4f4f5;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--color-app);
+    color: var(--color-zinc-100);
+    font-family: 'Inter', 'Heebo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
   }
 
-  /* Custom scrollbar for dark cinema theme */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #09090b;
+    background: var(--color-app);
   }
   ::-webkit-scrollbar-thumb {
-    background: #27272a;
+    background: var(--color-line);
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #3f3f46;
+    background: var(--color-zinc-700);
   }
 }
 
@@ -42,4 +87,9 @@
 
 .font-rtl-hebrew {
   font-family: 'Heebo', 'Rubik', system-ui, sans-serif;
+}
+
+/* violet accent used by the FOREIGN badge (keep readable in light mode) */
+:root[data-theme="light"] {
+  --color-violet-300: oklch(49.1% 0.27 292.581);
 }

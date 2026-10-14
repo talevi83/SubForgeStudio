@@ -50,8 +50,8 @@ async def test_refine_stage_execution():
         video_path="test.mp4",
         file_name="test.mp4",
         raw_segments=[
-            RawSegment(index=1, start_time=0.0, end_time=2.0, text="First subtitle block"),
-            RawSegment(index=2, start_time=2.1, end_time=4.0, text="Second subtitle block"),
+            RawSegment(index=1, start_time=0.0, end_time=2.0, text="First subtitle block."),
+            RawSegment(index=2, start_time=2.1, end_time=4.0, text="Second subtitle block."),
         ],
     )
     await stage.execute(ctx)

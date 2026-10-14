@@ -1,13 +1,29 @@
 export type JobStatus =
   | 'IDLE'
+  | 'QUEUED'
   | 'PROBING'
   | 'EXTRACTING_AUDIO'
   | 'TRANSCRIBING'
+  | 'SCANNING_ONSCREEN'
   | 'REFINING'
   | 'TRANSLATING'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
+
+export const ACTIVE_STATUSES: JobStatus[] = [
+  'IDLE',
+  'QUEUED',
+  'PROBING',
+  'EXTRACTING_AUDIO',
+  'TRANSCRIBING',
+  'SCANNING_ONSCREEN',
+  'REFINING',
+  'TRANSLATING',
+];
+
+export const isActiveStatus = (status?: JobStatus | null) =>
+  !!status && ACTIVE_STATUSES.includes(status);
 
 export interface AudioStreamInfo {
   index: number;
@@ -18,6 +34,18 @@ export interface AudioStreamInfo {
   language?: string;
   title?: string;
 }
+
+export interface SubtitleStreamInfo {
+  index: number;
+  codec_name: string;
+  language?: string;
+  title?: string | null;
+  forced: boolean;
+  default: boolean;
+  text_based: boolean;
+}
+
+export type SegmentType = 'DIALOGUE' | 'COMMS' | 'ON_SCREEN' | 'FOREIGN';
 
 export interface VideoStreamInfo {
   codec_name: string;
@@ -33,8 +61,10 @@ export interface ProbeResponse {
   file_size: number;
   duration: number;
   format_name: string;
+  is_upload?: boolean;
   video_streams: VideoStreamInfo[];
   audio_streams: AudioStreamInfo[];
+  subtitle_streams?: SubtitleStreamInfo[];
 }
 
 export interface SubtitleSegment {
@@ -45,8 +75,24 @@ export interface SubtitleSegment {
   end_time: number;
   original_text: string;
   translated_text?: string | null;
+  translation_failed?: boolean;
+  segment_type?: SegmentType;
   confidence?: number;
   cps?: number;
+}
+
+export interface GlossaryCharacter {
+  name: string;
+  target_name?: string;
+  gender: string;
+  notes?: string;
+}
+
+export interface Glossary {
+  summary?: string;
+  characters?: GlossaryCharacter[];
+  terms?: { source: string; translation: string; notes?: string }[];
+  register_notes?: string;
 }
 
 export interface Job {
@@ -54,29 +100,46 @@ export interface Job {
   video_path: string;
   file_name: string;
   file_size?: number;
+  is_upload?: boolean;
   status: JobStatus;
   current_stage?: string | null;
   progress_percent: number;
   speed_factor?: number | null;
   eta_seconds?: number | null;
   error_message?: string | null;
+  warning_message?: string | null;
   video_duration?: number | null;
   audio_streams: AudioStreamInfo[];
   selected_audio_stream: number;
   whisper_model: string;
   source_language?: string | null;
+  detected_language?: string | null;
   vad_filter: boolean;
+  comms_boost: boolean;
+  detect_onscreen_text: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_model: string;
   context_notes?: string | null;
+  glossary_profile?: string | null;
+  glossary?: Glossary | null;
+  usage?: JobUsage | null;
+  segment_count: number;
+  failed_translation_count: number;
   segments: SubtitleSegment[];
   created_at: string;
   updated_at: string;
 }
 
 export interface WebSocketEventPayload {
-  event: 'STAGE_PROGRESS' | 'SEGMENT_CREATED' | 'BATCH_TRANSLATED' | 'JOB_COMPLETED' | 'JOB_FAILED';
+  event:
+    | 'STAGE_PROGRESS'
+    | 'SEGMENT_CREATED'
+    | 'SEGMENTS_REFINED'
+    | 'BATCH_TRANSLATED'
+    | 'JOB_COMPLETED'
+    | 'JOB_FAILED'
+    | 'JOB_CANCELLED';
   job_id: string;
   stage?: string;
   progress_percent: number;
@@ -101,7 +164,10 @@ export interface HardwareInfo {
 export interface SystemInfo {
   is_gemini_configured: boolean;
   gemini_model: string;
+  gemini_models: string[];
   whisper_default_model: string;
+  whisper_models: string[];
+  max_cps_warning: number;
   hardware: HardwareInfo;
 }
 
@@ -110,9 +176,170 @@ export interface JobConfig {
   whisper_model: string;
   source_language: string;
   vad_filter: boolean;
+  comms_boost: boolean;
+  detect_onscreen_text: boolean;
   enable_translation: boolean;
   target_language: string;
-  gemini_model: string;
   gemini_api_key_override?: string;
   context_notes?: string;
+  /** Series glossary shared between episodes (saved by name) */
+  glossary_profile?: string;
+}
+
+export interface RetranslateOptions {
+  only_failed?: boolean;
+  target_language?: string;
+  gemini_model?: string;
+  context_notes?: string;
+  gemini_api_key_override?: string;
+  rebuild_glossary?: boolean;
+  /** Translate only these rows (segment ids), optionally with a note about who speaks to whom */
+  segment_ids?: number[];
+  thinking?: ThinkingLevel;
+  speaker_gender?: Gender | null;
+  addressee_gender?: Gender | null;
+  hint?: string;
+  remember_hint?: boolean;
+}
+
+export type Gender = 'male' | 'female' | 'group';
+
+export type SegmentPatch = Partial<
+  Pick<SubtitleSegment, 'start_time' | 'end_time' | 'original_text' | 'translated_text'>
+>;
+
+export type StorageCategoryId = 'temp' | 'cache' | 'logs' | 'exports' | 'uploads' | 'jobs';
+
+export interface StorageReport {
+  categories: { id: StorageCategoryId; bytes: number; count: number }[];
+  database_bytes: number;
+}
+
+export interface StorageCleanResult {
+  freed_bytes: number;
+  removed: Record<string, { bytes: number; count: number }>;
+}
+
+export interface SpeakerGuess {
+  speaker_gender: Gender | null;
+  addressee_gender: Gender | null;
+  explanation: string;
+}
+
+export interface QAIssue {
+  segment_id: number;
+  index: number;
+  kind: 'latin' | 'name' | 'term' | 'agreement' | 'missing';
+  message: string;
+}
+
+export interface SegmentsChange {
+  changed: number;
+  retimed: boolean;
+  message?: string | null;
+  segments: SubtitleSegment[];
+}
+
+export const RTL_LANGUAGES = ['hebrew', 'arabic', 'persian', 'farsi', 'urdu', 'yiddish', 'he', 'ar', 'fa', 'ur', 'yi'];
+export const isRtlLanguage = (lang?: string | null) =>
+  !!lang && RTL_LANGUAGES.includes(lang.trim().toLowerCase());
+
+// ---------------------------------------------------------------------------
+// Settings, model catalog, pricing
+// ---------------------------------------------------------------------------
+
+export type ThinkingLevel = 'default' | 'off' | 'minimal' | 'low' | 'medium' | 'high';
+export type MediaResolution = 'low' | 'medium' | 'high';
+
+export interface GeminiCallSettings {
+  model: string;
+  thinking: ThinkingLevel;
+  /** Flex service tier: half price, slower, falls back to Standard when Google is busy */
+  flex?: boolean;
+}
+
+export interface AppSettings {
+  translation: GeminiCallSettings;
+  glossary: GeminiCallSettings;
+  vision: GeminiCallSettings;
+  vision_media_resolution: MediaResolution;
+}
+
+export interface CatalogModel {
+  id: string;
+  label: string;
+  family: string;
+  preview: boolean;
+  thinking: ThinkingLevel[];
+  default_level: string;
+  input_per_m: number;
+  output_per_m: number;
+  input_long_per_m?: number | null;
+  output_long_per_m?: number | null;
+  price_change?: { after: string; input_per_m: number; output_per_m: number } | null;
+  supports_media_resolution: boolean;
+  /** Pipeline steps this model is offered for */
+  tasks: PipelineTask[];
+  supports_flex?: boolean;
+  /** Share of the Standard price billed on Flex (0.5), or null when Flex isn't offered */
+  flex_price_factor?: number | null;
+  note?: string;
+}
+
+export type PipelineTask = 'translation' | 'glossary' | 'vision';
+
+export interface ModelCheckResult {
+  ok: boolean;
+  error: string | null;
+}
+
+export interface ModelCheckResponse {
+  /** Keyed by model id */
+  results: Record<string, ModelCheckResult>;
+  /** Keyed by pipeline step (the vision probe also sends an image) */
+  steps?: Partial<Record<PipelineTask, ModelCheckResult & { model: string }>>;
+}
+
+export interface SettingsResponse {
+  settings: AppSettings;
+  catalog: CatalogModel[];
+  pricing_source: string;
+  pricing_checked: string;
+}
+
+export type GeminiStage = 'glossary' | 'translation' | 'onscreen' | 'foreign';
+
+export interface StageEstimate {
+  model: string;
+  thinking: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  thinking_tokens: number;
+  cost_usd: number | null;
+  flex?: boolean;
+  frames?: number;
+}
+
+export interface CostEstimate {
+  duration_seconds: number;
+  segments: number;
+  stages: Partial<Record<GeminiStage, StageEstimate>>;
+  total_cost_usd: number | null;
+}
+
+export interface StageUsage {
+  model: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  thinking_tokens: number;
+  cost_usd: number | null;
+  flex_requests?: number;
+  flex_fallbacks?: number;
+}
+
+export interface JobUsage {
+  stages: Partial<Record<GeminiStage, StageUsage>>;
+  total_cost_usd: number | null;
 }

@@ -1,31 +1,24 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-# Fix compatibility between PyAV (av>=14.0) and faster-whisper where metadata_errors was removed
-try:
-    import av
-    _orig_av_open = av.open
-
-    def _safe_av_open(*args, **kwargs):
-        kwargs.pop("metadata_errors", None)
-        return _orig_av_open(*args, **kwargs)
-
-    av.open = _safe_av_open
-except Exception:
-    pass
+from app.core import compat as _compat  # noqa: F401  (applies PyAV/faster-whisper compatibility shim)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.housekeeping import cleanup_storage
 from app.core.ws_manager import ws_manager
-from app.api import routes_system, routes_media, routes_jobs, routes_export
+from app.api import routes_system, routes_media, routes_jobs, routes_export, routes_settings, routes_glossary, routes_storage
+from app.pipeline.orchestrator import recover_interrupted_jobs
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from app.core.job_logging import setup_logging
+
+setup_logging()
 logger = logging.getLogger("subforge")
 
 
@@ -34,6 +27,13 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     logger.info("Initializing SubForge Studio Database...")
     init_db()
+    recovered = recover_interrupted_jobs()
+    if recovered:
+        logger.warning(f"Recovered {recovered} job(s) interrupted by a restart.")
+    try:
+        cleanup_storage()
+    except Exception as e:  # never block startup on housekeeping
+        logger.warning(f"Storage cleanup failed: {e}")
     logger.info(f"SubForge Studio backend initialized. Gemini configured: {settings.is_gemini_configured}")
     yield
     logger.info("Shutting down SubForge Studio backend...")
@@ -46,20 +46,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration for local frontend development
+# CORS: only allow the local frontend origins (Vite dev server + same-origin prod build).
+# A wildcard origin would let any website the user visits drive this API, which can read
+# arbitrary local files via job creation + streaming.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Reject requests whose Host header isn't this machine. Without this, a malicious website
+# could use DNS rebinding to reach the API (which can read any local file) via the browser.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 # Register API routers
 app.include_router(routes_system.router)
 app.include_router(routes_media.router)
 app.include_router(routes_jobs.router)
 app.include_router(routes_export.router)
+app.include_router(routes_settings.router)
+app.include_router(routes_glossary.router)
+app.include_router(routes_storage.router)
 
 
 @app.websocket("/ws/jobs/{job_id}")
@@ -76,8 +85,6 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str):
         ws_manager.disconnect(job_id, websocket)
 
 
-from pathlib import Path
-from fastapi.staticfiles import StaticFiles
 
 # If production frontend build exists, serve it; otherwise provide API root
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

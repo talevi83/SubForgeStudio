@@ -4,9 +4,13 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
-from app.models.schemas import ProbeResponse, AudioStreamInfo
+from app.models.schemas import ProbeResponse, AudioStreamInfo, SubtitleStreamInfo
 from app.pipeline.context import PipelineContext
 from app.pipeline.stages.base import PipelineStage, ProgressCallback
+
+
+# Subtitle codecs ffmpeg can convert to SRT text (image codecs like PGS/VobSub cannot)
+TEXT_SUBTITLE_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text", "microdvd", "subviewer"}
 
 
 def get_ffprobe_bin() -> str:
@@ -54,7 +58,9 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
 
     video_streams = []
     audio_streams = []
+    subtitle_streams = []
     audio_idx = 0
+    subtitle_idx = 0
 
     for stream in streams:
         c_type = stream.get("codec_type")
@@ -80,6 +86,20 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
                 title=title,
             ))
             audio_idx += 1
+        elif c_type == "subtitle":
+            tags = stream.get("tags") or {}
+            disposition = stream.get("disposition") or {}
+            codec = stream.get("codec_name", "unknown")
+            subtitle_streams.append(SubtitleStreamInfo(
+                index=subtitle_idx,
+                codec_name=codec,
+                language=tags.get("language") or "und",
+                title=tags.get("title"),
+                forced=bool(disposition.get("forced")),
+                default=bool(disposition.get("default")),
+                text_based=codec in TEXT_SUBTITLE_CODECS,
+            ))
+            subtitle_idx += 1
 
     return ProbeResponse(
         file_path=str(path.resolve()),
@@ -89,6 +109,7 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
         format_name=format_name,
         video_streams=video_streams,
         audio_streams=audio_streams,
+        subtitle_streams=subtitle_streams,
     )
 
 
@@ -110,6 +131,7 @@ class ProbeStage(PipelineStage):
         probe_res = await probe_media_file(ctx.video_path)
         ctx.duration = probe_res.duration
         ctx.audio_streams = probe_res.audio_streams
+        ctx.subtitle_streams = probe_res.subtitle_streams
         ctx.video_metadata = {
             "format_name": probe_res.format_name,
             "video_streams": probe_res.video_streams,

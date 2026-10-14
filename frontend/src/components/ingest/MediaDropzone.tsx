@@ -1,26 +1,29 @@
 import React, { useState } from 'react';
 import { api } from '../../services/api';
 import { useJobStore } from '../../store/useJobStore';
+import { useT } from '../../i18n';
+import { formatClock } from '../../utils/time';
 import { Upload, HardDrive, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 export const MediaDropzone: React.FC = () => {
-  const { setProbeResult, probeResult } = useJobStore();
+  const setProbeResult = useJobStore((s) => s.setProbeResult);
+  const probeResult = useJobStore((s) => s.probeResult);
+  const t = useT();
   const [tab, setTab] = useState<'local' | 'upload'>('local');
   const [localPath, setLocalPath] = useState('');
   const [isProbing, setIsProbing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleProbeLocalPath = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!localPath.trim()) return;
-
     setIsProbing(true);
     setError(null);
     try {
-      const res = await api.probePath(localPath.trim());
-      setProbeResult(res);
+      setProbeResult(await api.probePath(localPath.trim()));
     } catch (err: any) {
-      setError(err.message || 'Failed to inspect local video file');
+      setError(err.message || t('dropzone.probeFailed'));
     } finally {
       setIsProbing(false);
     }
@@ -30,72 +33,66 @@ export const MediaDropzone: React.FC = () => {
     setIsProbing(true);
     setError(null);
     try {
-      const res = await api.uploadFile(file);
-      setProbeResult(res);
+      // Same file uploaded before? Reuse it instead of copying gigabytes again.
+      const existing = await api.findExistingUpload(file);
+      if (existing) {
+        setProbeResult(existing);
+        return;
+      }
+      setUploadProgress(0);
+      setProbeResult(await api.uploadFile(file, setUploadProgress));
     } catch (err: any) {
-      setError(err.message || 'File upload failed');
+      setError(err.message || t('dropzone.uploadFailed'));
     } finally {
       setIsProbing(false);
+      setUploadProgress(null);
     }
   };
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
-    }
+    if (isProbing) return;
+    if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
   };
 
+  const tabButton = (value: 'local' | 'upload', label: string) => (
+    <button
+      onClick={() => setTab(value)}
+      className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+        tab === value ? 'bg-indigo-600 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-5 shadow-lg">
-      <div className="flex items-center justify-between border-b border-[#27272a] pb-3 mb-4">
+    <div className="bg-surface border border-line rounded-xl p-5 shadow-lg">
+      <div className="flex items-center justify-between gap-4 border-b border-line pb-3 mb-4">
         <div>
           <h2 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
             <HardDrive className="w-4 h-4 text-indigo-400" />
-            Media File Ingestion
+            {t('dropzone.title')}
           </h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Select an existing movie/episode on disk or upload via browser
-          </p>
+          <p className="text-xs text-zinc-400 mt-0.5">{t('dropzone.subtitle')}</p>
         </div>
-
-        {/* Tab switch */}
-        <div className="flex bg-[#121214] p-1 rounded-lg border border-[#27272a]">
-          <button
-            onClick={() => setTab('local')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-              tab === 'local'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            Direct Local Path
-          </button>
-          <button
-            onClick={() => setTab('upload')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-              tab === 'upload'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            File Upload
-          </button>
+        <div className="flex bg-sunken p-1 rounded-lg border border-line flex-shrink-0">
+          {tabButton('local', t('dropzone.tabLocal'))}
+          {tabButton('upload', t('dropzone.tabUpload'))}
         </div>
       </div>
 
       {tab === 'local' ? (
         <form onSubmit={handleProbeLocalPath} className="space-y-3">
-          <label className="block text-xs font-medium text-zinc-300">
-            Absolute Local File Path (Zero-Copy Processing)
-          </label>
+          <label className="block text-xs font-medium text-zinc-300">{t('dropzone.pathLabel')}</label>
           <div className="flex gap-2">
             <input
               type="text"
+              dir="ltr"
               value={localPath}
               onChange={(e) => setLocalPath(e.target.value)}
-              placeholder="e.g. C:\Movies\Inception.2010.1080p.mkv or I:\Media\episode.mp4"
-              className="flex-1 bg-[#121214] border border-[#27272a] rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 font-mono"
+              placeholder={t('dropzone.pathPlaceholder')}
+              className="flex-1 bg-sunken border border-line rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 font-mono"
             />
             <button
               type="submit"
@@ -105,23 +102,22 @@ export const MediaDropzone: React.FC = () => {
               {isProbing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Inspecting...
+                  {t('dropzone.inspecting')}
                 </>
               ) : (
-                'Inspect Media'
+                t('dropzone.inspect')
               )}
             </button>
           </div>
-          <p className="text-[11px] text-zinc-500">
-            Files on local drives (1GB – 50GB+) are probed in-place instantly without duplicating bytes.
-          </p>
+          <p className="text-[11px] text-zinc-500">{t('dropzone.pathHint')}</p>
         </form>
       ) : (
         <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={onDrop}
-          className="border-2 border-dashed border-[#27272a] hover:border-indigo-500/50 rounded-xl p-8 text-center bg-[#121214]/50 transition-colors flex flex-col items-center justify-center cursor-pointer"
+          className="border-2 border-dashed border-line hover:border-indigo-500/50 rounded-xl p-8 text-center bg-sunken/50 transition-colors flex flex-col items-center justify-center cursor-pointer"
           onClick={() => {
+            if (isProbing) return;
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'video/*,audio/*,.mkv,.mp4,.avi,.mov';
@@ -132,14 +128,21 @@ export const MediaDropzone: React.FC = () => {
           }}
         >
           <Upload className="w-8 h-8 text-indigo-400 mb-2" />
-          <p className="text-xs font-medium text-zinc-300">
-            Drag & drop a video file here, or click to browse
-          </p>
-          <p className="text-[11px] text-zinc-500 mt-1">Supports MKV, MP4, WebM, AVI, MOV</p>
+          <p className="text-xs font-medium text-zinc-300">{t('dropzone.dropTitle')}</p>
+          <p className="text-[11px] text-zinc-500 mt-1">{t('dropzone.dropHint')}</p>
           {isProbing && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-indigo-400 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Uploading and inspecting media...
+            <div className="mt-3 w-full max-w-sm space-y-1.5">
+              <div className="flex items-center justify-center gap-2 text-xs text-indigo-400 font-medium">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {uploadProgress !== null && uploadProgress < 1
+                  ? t('dropzone.uploading', { percent: Math.round(uploadProgress * 100) })
+                  : t('dropzone.inspectingMedia')}
+              </div>
+              {uploadProgress !== null && (
+                <div className="h-1.5 rounded-full bg-line overflow-hidden" dir="ltr">
+                  <div className="h-full bg-indigo-500 transition-all" style={{ width: `${uploadProgress * 100}%` }} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -156,8 +159,11 @@ export const MediaDropzone: React.FC = () => {
         <div className="mt-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>
-            Successfully probed: <strong>{probeResult.file_name}</strong> (
-            {Math.round(probeResult.file_size / (1024 * 1024))} MB, {Math.round(probeResult.duration)}s)
+            {t('dropzone.probed', {
+              name: probeResult.file_name,
+              size: Math.round(probeResult.file_size / (1024 * 1024)),
+              duration: formatClock(probeResult.duration),
+            })}
           </span>
         </div>
       )}
