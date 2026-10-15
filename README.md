@@ -102,7 +102,7 @@ Pipeline per job: **Probe → Audio → Transcribe → On-screen text** *(option
 
 ```text
 SubsForge Studio/
-├── SPEC.md                     # Master technical specification
+├── SPEC.md                     # Architecture, tech stack and design decisions
 ├── README.md                   # Setup and usage guide
 ├── run.bat                     # One-click Windows launcher (venv, .env, frontend build, server)
 ├── build_exe.bat               # Builds the standalone desktop app (dist\SubForge Studio\)

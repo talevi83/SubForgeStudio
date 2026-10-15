@@ -50,3 +50,4 @@ launcher.log
 
 # App window profile (run.bat / exe)
 webview/
+window.json

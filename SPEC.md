@@ -1,871 +1,249 @@
-# SubForge Studio — Master Technical Specification (`SPEC.md`)
+# SubForge Studio — Technical Specification (`SPEC.md`)
 
-## 1. Project Overview & Vision
-**SubForge Studio** is a production-grade, modular local web application that ingests video files (movies, TV episodes), probes media streams, extracts and preprocesses audio, performs high-precision local speech-to-text transcription with word-level timing, refines subtitles to broadcast standards, optionally translates subtitles into target languages via the **Google Gemini API** (with first-class RTL/Hebrew support), and provides an interactive real-time Web UI for live monitoring, video-synced previewing, inline editing, and SRT/VTT exporting.
+> Architecture, technology stack and design decisions of SubForge Studio as it is built today.
+> For setup, usage, every setting and the full endpoint list see [`README.md`](README.md); this document
+> explains **how the system is put together and why**. It was rewritten from the original build
+> specification (phases 1–4) to match the current code.
 
-### Core Engineering Rules
-1. **English-Only Code & Comments:** All code comments, docstrings, variable names, commit messages, and logs MUST be written strictly in **English**.
-2. **Modular Pipeline & Provider Architecture:** Use a Pipeline + Strategy/Provider pattern. Transcription and Translation engines must implement abstract base interfaces (`BaseTranscriber`, `BaseTranslator`) so the pipeline remains clean, testable, and extensible.
-3. **Non-Blocking Async Execution:** Heavy media and AI tasks (`ffmpeg`, `faster-whisper`, Gemini API batch translation) must never block the FastAPI async event loop. Execute blocking work in background worker threads/processes and stream live updates via WebSockets.
-4. **Zero-Copy Local File Support:** Because video files are large (1GB–20GB+), the system must support both standard browser file uploads AND direct local filesystem path selection without copying the video file unnecessarily.
-5. **Official GenAI SDK & Env Management:** Use `google-genai>=1.0.0` (`from google import genai`) for Gemini integration. Do NOT use the deprecated `google-generativeai` package. All sensitive keys and default parameters must be loaded from `backend/.env` via `pydantic-settings`.
+## 1. Overview
+
+**SubForge Studio** is a local application that turns a video file into finished subtitles:
+
+1. **Transcribes** the audio on the user's own machine (faster-whisper, word-level timestamps, GPU or CPU).
+2. **Refines** Whisper's output into broadcast-style subtitles (sentence re-segmentation, line limits, reading speed).
+3. **Translates** with Google Gemini (context-aware batches, glossary, first-class Hebrew/RTL support) — optional.
+4. **Re-times a subtitle file the user already has** against the video's speech and on-screen text — an alternative to 1–3.
+5. Offers an **editing studio** (synced player, inline edit, add/move/re-time lines, quality checks) and **SRT/VTT export**.
+
+It runs three ways from the same code: as a **local web app** (browser), as a **desktop window** from source (`run.bat`), and
+as a **standalone Windows program** (`SubForge Studio.exe`, PyInstaller). Nothing leaves the machine except the text
+and frames explicitly sent to Gemini; the video itself is never uploaded anywhere.
+
+### Core engineering rules
+
+1. **English-only code, comments, docstrings, logs and commit messages.** (The UI itself is bilingual: English and Hebrew.)
+2. **Pipeline + provider architecture.** Work is a sequence of stages; transcription and translation sit behind abstract
+   interfaces (`BaseTranscriber`, `BaseTranslator`) so engines can be swapped or faked in tests.
+3. **Never block the event loop.** `ffmpeg`, Whisper and Gemini calls run in subprocesses or worker threads
+   (`asyncio.to_thread`); progress reaches the browser over a WebSocket.
+4. **Zero-copy local files.** Videos are 1–20 GB: the user can point at a path on disk (nothing is copied), or upload through the
+   browser (copy kept in `storage/uploads`, owned by the app and deleted with its project).
+5. **Official Gemini SDK (`google-genai`) and typed configuration.** Defaults come from `backend/.env` via `pydantic-settings`;
+   the Settings screen overrides them in `storage/settings.json`. API keys typed in the UI are never written to disk.
+6. **Safe by default for a local server.** The API can read any path on the PC, so it binds to `127.0.0.1`, uses an explicit
+   CORS allow-list and a trusted-host check (against DNS rebinding).
+7. **Nothing is lost.** Results are saved as soon as they exist (after refinement and after every translated batch); failures
+   are flagged on the line, never silently dropped; jobs interrupted by a restart are recovered.
 
 ---
 
-## 2. Technology Stack
+## 2. Technology stack
 
-### Backend (`/backend`)
-* **Runtime & Web Framework:** Python 3.11+, FastAPI, Uvicorn
-* **Configuration:** `pydantic-settings` loading from `backend/.env` (with automatic creation of `.env.example`)
-* **Database & Persistence:** SQLite with SQLModel (or SQLAlchemy + Pydantic v2) for persisting jobs, pipeline configurations, and subtitle segments
-* **Media Processing:** `ffmpeg` & `ffprobe` (invoked via async subprocesses)
-* **Speech-to-Text Engine:** `faster-whisper` (CTranslate2 backend) supporting `cuda` (`float16`) and `cpu` (`int8`) with automatic hardware detection and Silero VAD filtering
-* **Translation Engine:** `google-genai` (`gemini-2.5-flash` structured batch translation) + `NoopTranslator` when translation is disabled
-* **Real-Time Communication:** FastAPI WebSockets (`ws://`) for live progress, processing speed metrics, and real-time segment streaming
-* **Testing:** `pytest`, `pytest-asyncio`, `httpx`
-
-### Frontend (`/frontend`)
-* **Framework:** React 18+, TypeScript, Vite
-* **Styling & UI Components:** Tailwind CSS, Shadcn UI (Radix primitives), Lucide React icons
-* **State Management:** Zustand (active job state, live WebSocket segment stream, and inline editor state)
-* **Video & Sync:** HTML5 Video Player with HTTP Range streaming support + dynamic WebVTT blob track injection for instant on-video subtitle previewing
+| Layer | Technology | Role |
+|---|---|---|
+| Backend framework | **Python 3.11+ (3.12 in `run.bat`), FastAPI, Uvicorn** | REST API, WebSocket, static hosting of the built frontend |
+| Persistence | **SQLModel / SQLAlchemy on SQLite** (`storage/subforge.db`) | Jobs and subtitle segments; additive column migration at startup |
+| Configuration | **pydantic-settings** (`.env`) + `storage/settings.json` | First-run defaults vs. user choices made in Settings |
+| Speech-to-text | **faster-whisper** (CTranslate2) + **Silero VAD** | Local transcription, word timestamps, speech maps, language detection |
+| GPU runtime | **NVIDIA cuBLAS / cuDNN wheels** (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) | CUDA FP16 without a system CUDA install; CPU INT8 fallback |
+| Media | **ffmpeg / ffprobe** (async subprocesses) | Probing, audio extraction and filtering, frame sampling, subtitle-track extraction |
+| AI | **Google Gemini** via `google-genai` | Glossary pass, translation, on-screen text (vision), sync line matching, speaker gender detection |
+| Frontend | **React 19, TypeScript 6, Vite 8, Tailwind CSS 4, Zustand 5, lucide-react** | Single-page studio; typed REST client; WebSocket listener inside the job store |
+| Lint / build | **oxlint**, `tsc -b` + `vite build` | Frontend must pass both with zero warnings |
+| Desktop shell | **pywebview** (Edge WebView2), **pystray + Pillow** (tray icon) | Own app window and tray menu (`packaging/launcher.py`) |
+| Packaging | **PyInstaller** one-folder (`packaging/subforge.spec`, `build_exe.bat`) | Self-contained `SubForge Studio.exe` with Python, libraries, frontend, ffmpeg and CUDA libs |
+| Tests | **pytest, pytest-asyncio, httpx** | ~260 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
 
 ---
 
-## 3. Repository Directory Structure
+## 3. System architecture
 
 ```text
-subforge-studio/
-├── SPEC.md
-├── README.md
-├── backend/
-│   ├── .env                        # Local environment variables (gitignored)
-│   ├── .env.example                # Template environment variables
-│   ├── requirements.txt
-│   ├── app/
-│   │   ├── main.py                 # FastAPI app initialization, lifespan & CORS
-│   │   ├── core/
-│   │   │   ├── config.py           # Pydantic BaseSettings (.env loader)
-│   │   │   ├── database.py         # SQLite engine & session management
-│   │   │   ├── hardware.py         # GPU/VRAM (CUDA) & CPU detection utility
-│   │   │   └── ws_manager.py       # WebSocket connection & broadcast manager
-│   │   ├── models/
-│   │   │   ├── db_models.py        # SQLModel tables: Job, SubtitleSegmentRecord
-│   │   │   └── schemas.py          # Pydantic API request/response schemas
-│   │   ├── pipeline/
-│   │   │   ├── orchestrator.py     # Executes pipeline stages sequentially
-│   │   │   ├── context.py          # Shared state object passed across stages
-│   │   │   └── stages/
-│   │   │       ├── base.py         # Abstract PipelineStage interface
-│   │   │       ├── probe_stage.py  # FFprobe metadata & audio stream discovery
-│   │   │       ├── audio_stage.py  # FFmpeg 16kHz mono WAV extraction
-│   │   │       ├── transcribe_stage.py # Invokes FasterWhisperTranscriber
-│   │   │       ├── refine_stage.py # Smart line splitting, CPS & gap smoothing
-│   │   │       └── translate_stage.py  # Invokes GeminiTranslator (Optional)
-│   │   ├── providers/
-│   │   │   ├── transcription/
-│   │   │   │   ├── base.py         # Abstract BaseTranscriber
-│   │   │   │   └── faster_whisper.py   # Faster-Whisper implementation
-│   │   │   └── translation/
-│   │   │       ├── base.py         # Abstract BaseTranslator & TranslatableSegment
-│   │   │       ├── noop.py         # Pass-through when translation is disabled
-│   │   │       └── gemini_provider.py  # Context-aware batch translation via Gemini API
-│   │   ├── utils/
-│   │   │   ├── srt_formatter.py    # SRT/VTT serialization & timestamp formatting
-│   │   │   └── rtl_fixer.py        # BiDi / Hebrew punctuation & RLM fixer
-│   │   └── api/
-│   │       ├── routes_media.py     # Probe local paths, upload files, stream video
-│   │       ├── routes_jobs.py      # CRUD jobs, start/cancel pipeline, edit segments
-│   │       ├── routes_export.py    # Download .srt / .vtt (original or translated)
-│   │       └── routes_system.py    # Hardware status, env config check & API key status
-│   └── tests/
-│       ├── test_srt_formatter.py
-│       ├── test_refine_stage.py
-│       └── test_rtl_fixer.py
-└── frontend/
-    ├── package.json
-    ├── vite.config.ts
-    ├── index.html
-    └── src/
-        ├── main.tsx
-        ├── App.tsx
-        ├── types/
-        │   └── index.ts            # Shared TS interfaces matching backend schemas
-        ├── store/
-        │   └── useJobStore.ts      # Zustand store + WebSocket event handler
-        ├── services/
-        │   └── api.ts              # Typed REST client
-        └── components/
-            ├── layout/
-            │   ├── Sidebar.tsx     # Job history, hardware badge, API key status badge
-            │   └── Header.tsx
-            ├── ingest/
-            │   ├── MediaDropzone.tsx   # Drag & Drop + Local File Path input
-            │   ├── StreamSelector.tsx  # Select specific audio track from MKV/MP4
-            │   └── PipelineConfig.tsx  # Whisper model, source lang, Gemini translation toggle
-            ├── monitor/
-            │   ├── LivePipelineBar.tsx # Step-by-step stage progress, ETA & speed (x RT)
-            │   └── LiveStreamFeed.tsx  # Auto-scrolling real-time segment feed
-            └── studio/
-                ├── VideoSyncPlayer.tsx # Video player with live subtitle overlay
-                ├── SubtitleTable.tsx   # Virtualized inline editor (Original + Translated)
-                ├── CpsBadge.tsx        # Reading speed indicator (Chars Per Second)
-                └── ExportToolbar.tsx   # Format selector, RTL fixer toggle, Download CTA
+ ┌──────────────────────────── Browser tab  or  pywebview window (WebView2) ───────────────────────────┐
+ │  React SPA:  Ingest ─ Live monitor ─ Studio (player + table) ─ Settings                               │
+ │  Zustand stores (jobs, settings, ui)   typed REST client (services/api.ts)   WebSocket listener       │
+ └───────────────▲──────────────────────────────────────┬───────────────────────────────────────────────┘
+                 │ REST /api/*   (Range streaming for video)      │ WS /ws/jobs/{id}: progress, segments
+ ┌───────────────┴──────────────────────────────────────▼───────────────────────────────────────────────┐
+ │ FastAPI app  (CORS allow-list, TrustedHost, routers, serves frontend/dist)                           │
+ │   routes: system · media · jobs · export · settings · glossary · storage                              │
+ │                                    │                                                                  │
+ │                       PipelineOrchestrator  (one asyncio task per job)                                │
+ │        GPU semaphore · cancel flag · save-as-you-go · usage/cost tracking · per-job log               │
+ │                                    │                                                                  │
+ │   Stages:  Probe → Audio → Transcribe → [On-screen] → Refine → [Translate]     (mode "full")          │
+ │            Probe → Audio → Transcribe → [On-screen] → Sync                      (mode "sync")         │
+ │            Translate only                                                       (mode "translate")    │
+ │                                    │                                                                  │
+ │   Providers:  BaseTranscriber ── FasterWhisperTranscriber                                             │
+ │               BaseTranslator  ── GeminiTranslator (Flex wrapper)  ·  NoopTranslator                   │
+ └────────┬──────────────────────────┬────────────────────────────┬───────────────────────────┬─────────┘
+          │ SQLite (SQLModel)        │ ffmpeg / ffprobe           │ faster-whisper (GPU/CPU)  │ Gemini API
+          ▼                          ▼                            ▼                           ▼
+   storage/subforge.db        audio, frames, tracks         models in the HF cache        text + frames only
 ```
+
+### 3.1 Backend layout (`backend/app/`)
+
+| Package | Contents |
+|---|---|
+| `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware, routers, WebSocket endpoint, static hosting of `SUBFORGE_FRONTEND_DIST` / `frontend/dist` |
+| `api/` | One router per area (see §6): `routes_system`, `routes_media`, `routes_jobs`, `routes_export`, `routes_settings`, `routes_glossary`, `routes_storage` |
+| `core/` | `config` (settings), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `compat` (PyAV/faster-whisper shim) |
+| `models/` | `db_models` (tables, `JobStatus`, `SegmentType`), `schemas` (Pydantic request/response models) |
+| `pipeline/` | `orchestrator`, `context` (state passed between stages), `stages/*`, and the algorithms below |
+| `providers/` | `transcription/` (`BaseTranscriber`, faster-whisper), `translation/` (`BaseTranslator`, Gemini, Noop), `gemini_calls` (Flex tier wrapper) |
+| `utils/` | SRT/VTT formatter, RTL fixer, subtitle file parser, language helpers, text-break rules |
+
+### 3.2 Pipeline stages (`pipeline/stages/`)
+
+| Stage (`JobStatus`) | What it does |
+|---|---|
+| **Probe** (`PROBING`) | `ffprobe` the file: duration, audio streams (the user picks one), embedded subtitle tracks |
+| **Audio** (`EXTRACTING_AUDIO`) | ffmpeg → mono 16 kHz WAV. Surround tracks are downmixed with emphasis on the centre (dialogue) channel; *Comms boost* adds a speech-band chain (band-pass, FFT denoise, compressor, `dynaudnorm`) |
+| **Transcribe** (`TRANSCRIBING`) | faster-whisper with Silero VAD and word timestamps; batched GPU inference with fallback to sequential on out-of-memory; real mid-file cancellation; model stays loaded between jobs. Then: *start alignment* (`word_snap`), *missed-speech recovery* (`gap_recovery`), *foreign-speech detection* (`foreign_speech`) |
+| **On-screen text** (`SCANNING_ONSCREEN`, optional) | Uses an embedded forced/"signs" subtitle track if present; otherwise samples frames in the background while Whisper runs (prioritising speech gaps and scene cuts) and asks Gemini Vision for narrative text only. Also reads burned-in subtitles for foreign passages |
+| **Refine** (`REFINING`) | Flatten words → remove repetition loops → re-group by sentence → split at clause boundaries (42 chars/line, 2 lines) → timing pass (no overlaps, ≥ 2-frame gaps, target reading speed) → merge on-screen cues into the timeline |
+| **Translate** (`TRANSLATING`, optional) | Glossary pass over the whole transcript, then batched translation with sliding context and strict 1-to-1 index mapping (structured output); per-line retry; failures flagged, never left silently untranslated |
+| **Sync** (`SYNCING`, sync jobs) | Re-times the user's subtitle file, see §4.4 |
+
+A job moves through `IDLE/QUEUED → … → COMPLETED | FAILED | CANCELLED`. `QUEUED` is the wait for the GPU slot
+(`MAX_CONCURRENT_TRANSCRIPTIONS`, default 1). On startup `recover_interrupted_jobs()` repairs jobs left mid-run by a crash:
+jobs that already have subtitles become usable (`COMPLETED` with a warning, untranslated lines flagged), others `FAILED`.
+
+### 3.3 Real-time protocol (`WS /ws/jobs/{job_id}`)
+
+One JSON envelope: `{ event, job_id, stage?, progress_percent, speed_factor?, eta_seconds?, segment?, segments_batch?, message? }`.
+
+| `event` | Meaning |
+|---|---|
+| `STAGE_PROGRESS` | Stage, percent, speed factor, ETA, optional status message |
+| `SEGMENT_CREATED` | A transcribed segment, streamed while Whisper runs |
+| `SEGMENTS_REFINED` | The final, editable subtitles (with database ids) replace the raw Whisper segments |
+| `BATCH_TRANSLATED` | A translated batch; each batch is also saved to the database |
+| `JOB_COMPLETED` / `JOB_FAILED` / `JOB_CANCELLED` | Terminal events |
+
+The frontend store reconnects automatically and re-fetches the job on reconnect, so the database — not the socket — is the source of truth.
 
 ---
 
-## 4. Core Domain Models & Data Contracts
+## 4. Key algorithms and design decisions
 
-### 4.1 Job State Machine (`JobStatus`)
-* `IDLE` — Created, awaiting start
-* `PROBING` — Extracting video duration and audio tracks via `ffprobe`
-* `EXTRACTING_AUDIO` — Converting selected audio stream to 16kHz mono WAV
-* `TRANSCRIBING` — Running Speech-to-Text; streaming segments via WebSocket
-* `REFINING` — Applying broadcast subtitle heuristics (CPL, CPS, timing gaps)
-* `TRANSLATING` — Running Gemini context-aware batch translation (if enabled)
-* `COMPLETED` — Ready for studio review and export
-* `FAILED` — Error occurred (with detailed error message)
-* `CANCELLED` — Terminated by user
+### 4.1 Transcription and timing quality
+- **Hardware:** CUDA FP16 when an NVIDIA GPU is found, CPU INT8 otherwise (`WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`). In the frozen build the CUDA wheels' `bin` folders are added to the DLL search path (`core/hardware.py`).
+- **Hallucination control:** Silero VAD, `condition_on_previous_text=False`, repetition-loop removal, strict checks on recovered text.
+- **Word start alignment (`word_snap`):** Whisper's timestamps ignore silence, so a word after a pause can be stamped early. Silero VAD finds the real speech onset; starts are only ever moved *later*, and only across silent gaps ≥ 0.4 s.
+- **Missed-speech recovery (`gap_recovery`):** VAD misses shouted speech under gunfire/music; Whisper re-listens *without* VAD to uncovered stretches and keeps only lines that pass hallucination checks.
+- **Foreign passages (`foreign_speech`):** per-chunk language detection (encoder only) finds speech in another language than the rest; the text comes from burned-in subtitles (frame reading) or a Whisper re-transcription in that language.
+- **Re-check timing (`retime`, `speech_regions`):** timing-only correction of finished subtitles against a fresh speech map; text and on-screen cues are never touched; cached under `storage/regions`; the studio offers *Undo*.
 
-### 4.2 Subtitle Segment Schema (`SubtitleSegment`)
-```json
-{
-  "id": "uuid-or-int",
-  "job_id": "string",
-  "index": 1,
-  "start_time": 12.340,
-  "end_time": 15.120,
-  "original_text": "We need to secure the perimeter\nbefore nightfall.",
-  "translated_text": "\u200fאנחנו צריכים לאבטח את ההיקף\u200f\n\u200fלפני רדת החשיכה.\u200f",
-  "confidence": 0.94,
-  "cps": 17.6
-}
-```
+### 4.2 Subtitle refinement and export
+- Linguistic break rules live in `utils/text_rules.py`; formatting (balanced line splitting, SRT/VTT) in `utils/srt_formatter.py`.
+- Limits are configurable: `MAX_CHARS_PER_LINE` 42, `TARGET_CPS` 17, `MAX_CPS_WARNING` 20, duration 1–7 s, minimum gap ≈ 2 frames.
+- **RTL (Hebrew/Arabic):** text is stored clean; directional marks (`U+200F`) are added only at export so `? ! .` and dialogue dashes land on the right side in VLC/Plex/HTML5 players; SRT is written with a UTF-8 BOM.
+- Segment types: `DIALOGUE`, `COMMS` (radio traffic), `ON_SCREEN` (titles/signs, bracketed), `FOREIGN` (other-language speech).
 
-### 4.3 WebSocket Event Payload (`ws://localhost:8000/ws/jobs/{job_id}`)
-```json
-{
-  "event": "STAGE_PROGRESS | SEGMENT_CREATED | BATCH_TRANSLATED | JOB_COMPLETED | JOB_FAILED",
-  "job_id": "string",
-  "stage": "TRANSCRIBING",
-  "progress_percent": 42.5,
-  "speed_factor": 4.8,
-  "eta_seconds": 115,
-  "segment": null,
-  "segments_batch": [],
-  "message": "Optional status or error detail"
-}
-```
+### 4.3 Translation (Gemini)
+- **Glossary pass → batches:** characters (gender, name spelling), terms and tone feed every batch; **series glossary profiles** (`storage/glossaries/`) carry them across episodes.
+- **Structured output** with strict index mapping; sliding `previous_context` / `lookahead_context`; missing lines retried individually.
+- **Per-step models:** *Translation*, *Glossary pass* and *On-screen text (vision)* each have their own model and thinking level. The catalog (`core/model_catalog.py`) knows prices (including dated promotions and long-context tiers), supported thinking modes and which models may do which task (vision needs image input); retired models are migrated automatically. Flash-Lite models are the budget choices for translation.
+- **Flex tier** (`providers/gemini_calls.py`): requests at half price with a long timeout; on capacity errors (429/503) exponential backoff, then one Standard-tier request; after two consecutive "bad" Flex results the rest of the job uses Standard.
+- **Cost:** every call records exact input/output/thinking tokens and dollars per step (`Job.usage_json`); `POST /api/settings/estimate` predicts cost for a video length before running.
+- **Row-level tools:** re-translate selected rows with speaker/addressee gender and a free-text note; *Detect from video* asks Gemini to infer gender from frames; a deterministic **quality check** (`pipeline/qa.py`, no model call) flags untranslated Latin words, glossary mismatches and pronoun/verb gender errors.
+
+### 4.4 Syncing an existing subtitle file (`sync_*`)
+Input: video + the user's own SRT / WebVTT / ASS (`utils/subtitle_parser.py` reads UTF-8/16, Windows-1255 and -1252; formatting is stripped, top-positioned cues marked as probable signs). **Text is never changed — only timing.**
+
+1. **Speech map:** Silero VAD over the audio plus Whisper word times.
+2. **Reference timing from the video itself** when available: an embedded text subtitle track, else subtitles burned into the picture (`sync_burned.py` — local frame analysis of the bottom band with ffmpeg, no OCR; used only if it fits the speech).
+3. **Global mapping** `t → scale·t + offset` by cross-correlating "a subtitle is showing" with "someone is speaking", trying the usual frame-rate ratios (25 ↔ 23.976/24 …) (`sync_align.py`).
+4. **Per-cue offsets by dynamic programming (Viterbi)** with split penalties, so cuts (recaps, removed scenes) are found; an onset bonus pulls cues to speech starts.
+5. **Text anchors** (`sync_text.py`): same-language files are matched to Whisper words locally (difflib); other-language files are matched by Gemini line-to-phrase batches (the *Translation* model, optional). Anchors are evidence, not orders — neighbours outvote a wrong one.
+6. **Second alignment pass** with the anchors; low-confidence lines surface under *Only problems*; the job stores a report (`sync_report_json`: offset, frame rate, cuts, method per line).
+7. The result is an ordinary project (edit, re-check timing, export). A file in another language becomes the translation, with the audio's text as the original.
+
+### 4.5 Editing operations
+All edits go through the REST API and renumber lines transactionally: single/bulk patch, **add a line** (`POST /segments`, overlap → `409`, timecode `HH:MM:SS,mmm` shared with the UI), **move** (`/segments/move`, text moves and time slots stay, only the affected span is re-checked), **re-time**, delete project.
 
 ---
 
-## 5. Deep-Dive Specifications & Reference Implementations
+## 5. Data model
 
-### 5.1 Environment Configuration (`backend/.env` & `backend/app/core/config.py`)
-The backend MUST include a `backend/.env.example` file and load `backend/.env` automatically via `pydantic-settings`. If `.env` does not exist yet on first boot, the app should still start gracefully and report whether `GEMINI_API_KEY` is configured via `/api/system/info` (and allow optional runtime API key override from the UI).
+**`jobs`** — one row per project: `id`, `video_path`, `file_name`, `is_upload`, `status`, `current_stage`, `progress_percent`,
+`speed_factor`, `eta_seconds`, `error_message`, `warning_message`, `video_duration`, `audio_streams_json`, `selected_audio_stream`,
+`whisper_model`, `source_language`, `detected_language`, `vad_filter`, `comms_boost`, `detect_onscreen_text`, `enable_translation`,
+`target_language`, `gemini_model`, `context_notes`, `glossary_profile`, `glossary_json`, `usage_json`, and for sync jobs
+`job_kind` (`transcribe` | `sync`), `sync_file_name`, `sync_source_json`, `sync_report_json`, plus timestamps.
 
-#### `backend/.env.example`
-```env
-# Google Gemini API Configuration (Required for Subtitle Translation)
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_BATCH_SIZE=30
+**`subtitle_segments`** — `id`, `job_id` (FK, cascade delete), `index`, `start_time`, `end_time`, `original_text`, `translated_text`,
+`translation_failed`, `segment_type`, `confidence`, `cps`.
 
-# Faster-Whisper Local Transcription Defaults
-WHISPER_DEFAULT_MODEL=medium
-WHISPER_DEVICE=auto
-WHISPER_COMPUTE_TYPE=auto
+**Migrations:** `core/database.py` keeps an additive `_ADDED_COLUMNS` map and `ALTER TABLE … ADD COLUMN`s missing columns at startup, so
+existing databases keep working across versions (no migration tool, no destructive changes).
 
-# Subtitle Formatting Rules
-MAX_CHARS_PER_LINE=42
-MAX_CPS_WARNING=20.0
-
-# Paths & Server Configuration
-STORAGE_DIR=./storage
-DATABASE_URL=sqlite:///./storage/subforge.db
-HOST=0.0.0.0
-PORT=8000
-```
-
-#### `backend/app/core/config.py`
-```python
-from pathlib import Path
-from typing import Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables and .env file."""
-
-    # Gemini API Settings
-    gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_batch_size: int = 30
-
-    # Whisper Settings
-    whisper_default_model: str = "medium"
-    whisper_device: str = "auto"          # "auto", "cuda", or "cpu"
-    whisper_compute_type: str = "auto"    # "auto", "float16", or "int8"
-
-    # Subtitle Rules
-    max_chars_per_line: int = 42
-    max_cps_warning: float = 20.0
-
-    # Storage & Database
-    storage_dir: Path = Path("./storage")
-    database_url: str = "sqlite:///./storage/subforge.db"
-    host: str = "0.0.0.0"
-    port: int = 8000
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    @property
-    def is_gemini_configured(self) -> bool:
-        """Return True if a valid non-placeholder Gemini API key is present."""
-        return bool(
-            self.gemini_api_key
-            and self.gemini_api_key.strip()
-            and self.gemini_api_key != "your_gemini_api_key_here"
-        )
-
-
-settings = Settings()
-settings.storage_dir.mkdir(parents=True, exist_ok=True)
-(settings.storage_dir / "uploads").mkdir(parents=True, exist_ok=True)
-(settings.storage_dir / "audio").mkdir(parents=True, exist_ok=True)
-(settings.storage_dir / "exports").mkdir(parents=True, exist_ok=True)
-```
+**On disk (`storage/`, git-ignored):** `subforge.db`, `settings.json`, `uploads/`, `audio/`, `frames/`, `exports/`, `regions/`, `glossaries/`, `logs/` (`server.log` rotating 3 × 5 MB, `jobs/<job>.log` per project).
+Housekeeping at startup removes stale temporary audio and abandoned uploads (`UPLOAD_RETENTION_HOURS`); the Settings screen can free space by category and never touches videos the user selected by path.
 
 ---
 
-### 5.2 Audio Extraction Stage (`backend/app/pipeline/stages/audio_stage.py`)
-Extract only the user-selected audio stream (`stream_index`) into a 16kHz mono PCM WAV file to minimize RAM/VRAM footprint before running Whisper.
+## 6. API surface
 
-```python
-import asyncio
+Interactive documentation: `http://localhost:8000/docs`. Summary:
 
-
-async def extract_audio_track(
-    video_path: str,
-    output_wav_path: str,
-    audio_stream_index: int = 0,
-) -> None:
-    """Extract a specific audio stream converted to 16kHz mono WAV using ffmpeg."""
-    command = [
-        "ffmpeg",
-        "-y",                               # Overwrite output if exists
-        "-i", video_path,
-        "-map", f"0:a:{audio_stream_index}", # Select specific audio stream
-        "-vn",                              # Disable video stream
-        "-acodec", "pcm_s16le",             # Raw 16-bit PCM
-        "-ar", "16000",                     # Whisper optimal sample rate (16kHz)
-        "-ac", "1",                         # Mono channel
-        output_wav_path,
-    ]
-
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        error_msg = stderr.decode(errors="ignore") if stderr else "Unknown FFmpeg error"
-        raise RuntimeError(f"FFmpeg audio extraction failed: {error_msg}")
-```
+| Area | Endpoints |
+|---|---|
+| System | `GET /api/system/info`, `GET /api/system/log` |
+| Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `POST /api/media/parse-subtitles`, `GET /api/media/stream/{job_id}` (HTTP Range) |
+| Jobs | `POST/GET /api/jobs` (`sync_cues` makes a sync job), `GET/DELETE /api/jobs/{id}`, `POST …/cancel`, `POST …/translate` |
+| Editing | `POST …/segments`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
+| Translation tools | `PUT …/glossary`, `POST …/detect-speakers`, `GET …/qa`, `GET /api/glossary-profiles` |
+| Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log` |
+| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check` |
+| Storage | `GET /api/storage`, `POST /api/storage/clean` |
+| Live | `WS /ws/jobs/{job_id}` |
 
 ---
 
-### 5.3 Smart Segmentation, Broadcast Rules & SRT Formatter (`backend/app/utils/srt_formatter.py`)
-1. **Max Characters Per Line (CPL):** Default `42` characters.
-2. **Max Lines Per Subtitle:** `2` lines.
-3. **Balanced Line Splitting:** If a line is between 43 and 84 characters, split it into two visually balanced lines at word boundaries. If a raw Whisper segment exceeds 84 characters, use word-level timestamps (`word_timestamps=True`) in `refine_stage.py` to split it into separate timed subtitle blocks.
-4. **Duration Constraints:** Minimum segment duration `0.8s`, maximum `7.0s`.
-5. **Reading Speed (CPS):** Calculate `len(clean_text.replace("\n", "")) / duration`. Flag segments where `cps > 20` in the UI.
+## 7. Frontend
 
-```python
-import math
-from typing import List
-from app.utils.rtl_fixer import apply_rtl_fix, strip_directional_marks
-
-
-def format_srt_timestamp(seconds: float) -> str:
-    """Convert float seconds to SRT timecode: HH:MM:SS,mmm"""
-    seconds = max(0.0, seconds)
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int(round((seconds - math.floor(seconds)) * 1000))
-    if millis == 1000:
-        secs += 1
-        millis = 0
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-
-def format_vtt_timestamp(seconds: float) -> str:
-    """Convert float seconds to WebVTT timecode: HH:MM:SS.mmm"""
-    return format_srt_timestamp(seconds).replace(",", ".")
-
-
-def split_long_lines(text: str, max_chars_per_line: int = 42) -> str:
-    """Split single-line text into maximum two balanced lines if it exceeds limit."""
-    if "\n" in text:
-        return text
-
-    words = text.split()
-    if len(text) <= max_chars_per_line or len(words) <= 1:
-        return text
-
-    mid = len(text) // 2
-    best_split = min(
-        range(1, len(words)),
-        key=lambda i: abs(len(" ".join(words[:i])) - mid),
-    )
-    line1 = " ".join(words[:best_split])
-    line2 = " ".join(words[best_split:])
-    return f"{line1}\n{line2}"
-
-
-def serialize_to_srt(
-    segments: List[dict],
-    use_translated: bool = False,
-    apply_rtl: bool = True,
-    max_chars_per_line: int = 42,
-) -> str:
-    """Serialize segment dictionaries into a standard .srt file string."""
-    blocks = []
-    for idx, seg in enumerate(segments, start=1):
-        raw_text = (
-            seg.get("translated_text") if use_translated and seg.get("translated_text")
-            else seg.get("original_text", "")
-        )
-        clean_text = strip_directional_marks(raw_text.strip())
-        formatted_text = split_long_lines(clean_text, max_chars_per_line=max_chars_per_line)
-
-        if apply_rtl:
-            formatted_text = apply_rtl_fix(formatted_text)
-
-        start_tc = format_srt_timestamp(seg["start_time"])
-        end_tc = format_srt_timestamp(seg["end_time"])
-        blocks.append(f"{idx}\n{start_tc} --> {end_tc}\n{formatted_text}\n")
-
-    return "\n".join(blocks)
-```
+- **Structure:** `components/` → `ingest/` (media drop, stream selector, mode switch *Create subtitles / Sync my subtitles*, pipeline config, sync options), `monitor/` (live pipeline bar, stream feed), `studio/` (video player, subtitle table/rows, export toolbar, glossary / row-translate / insert-line dialogs), `settings/`, `layout/`.
+- **State:** Zustand — `useJobStore` (jobs, active job, segments, WebSocket, ingest mode, sync file), `useSettingsStore`, `useUiStore` (language, theme, view; persisted to `localStorage`, reflected on `<html>` for CSS and RTL layout).
+- **Contracts:** `types/index.ts` mirrors the backend schemas; `services/api.ts` is the only REST client.
+- **i18n:** `i18n/en.ts` + `i18n/he.ts`; message keys are typed, so a missing translation fails the TypeScript build. Hebrew switches the whole layout to RTL (`dir`), with explicit `dir` only around genuinely left-to-right fragments.
+- **Player:** HTML5 video with Range seeking and a dynamic WebVTT blob track, so edits show on the video immediately. Shortcuts: `Space`, `←/→` (±2 s, `Shift` ±0.1 s), `[` `]` (set start/end to playhead), `N` (add line), `F` (fullscreen).
+- **Dev/prod:** `npm run dev` on `:5173` proxies `/api` and `/ws` to `:8000`; `npm run build` produces `frontend/dist`, which FastAPI serves on the same origin.
+- **Desktop bridge:** `utils/desktop.ts` talks to `window.pywebview.api` when present (fullscreen of the whole window).
 
 ---
 
-### 5.4 RTL / Hebrew BiDi Fixer (`backend/app/utils/rtl_fixer.py`)
-Use this exact reference implementation to prevent trailing punctuation (`?`, `!`, `.`, `,`) and leading dialogue hyphens (`- `) from jumping to the wrong side of Hebrew/Arabic lines in media players.
+## 8. Desktop shell and packaging (`packaging/`)
 
-```python
-import re
-
-# Unicode directional control characters
-RLM = "\u200f"  # Right-to-Left Mark
-LRM = "\u200e"  # Left-to-Right Mark
-RLE = "\u202b"  # Right-to-Left Embedding
-LRE = "\u202a"  # Left-to-Right Embedding
-PDF = "\u202c"  # Pop Directional Formatting
-
-# Regex matching any Hebrew or Arabic character
-RTL_CHAR_PATTERN = re.compile(r"[\u0590-\u05FF\u0600-\u06FF]")
-
-# Regex to strip existing directional control characters for idempotency
-CONTROL_CHARS_PATTERN = re.compile(r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
-
-
-def contains_rtl(text: str) -> bool:
-    """Check whether the given string contains Hebrew or Arabic characters."""
-    return bool(RTL_CHAR_PATTERN.search(text))
-
-
-def strip_directional_marks(text: str) -> str:
-    """Remove any existing Unicode BiDi control characters from the text."""
-    return CONTROL_CHARS_PATTERN.sub("", text)
-
-
-def fix_rtl_line(line: str, use_embedding: bool = False) -> str:
-    """
-    Fix BiDi punctuation placement for a single subtitle line containing RTL text.
-
-    By sandwiching the line between RLM characters (start and end), neutral
-    characters such as leading dialogue hyphens ('- ') and trailing punctuation
-    ('?', '!', '.', ',') are forced into the RTL layout context across all
-    standard media players (VLC, MPV, Plex, HTML5 WebVTT).
-    """
-    clean_line = strip_directional_marks(line).strip()
-    if not clean_line:
-        return ""
-
-    if not contains_rtl(clean_line):
-        return clean_line
-
-    # Normalize dialogue hyphen spacing (e.g., "-Hello" -> "- Hello")
-    if clean_line.startswith("-") and not clean_line.startswith("- "):
-        clean_line = "- " + clean_line[1:].lstrip()
-
-    if use_embedding:
-        return f"{RLE}{RLM}{clean_line}{RLM}{PDF}"
-
-    return f"{RLM}{clean_line}{RLM}"
-
-
-def apply_rtl_fix(text: str, use_embedding: bool = False) -> str:
-    """
-    Apply BiDi RTL fixes line-by-line to a potentially multi-line subtitle block.
-    Safe to call multiple times (idempotent).
-    """
-    if not text:
-        return ""
-
-    lines = text.split("\n")
-    fixed_lines = [fix_rtl_line(line, use_embedding=use_embedding) for line in lines]
-    return "\n".join(fixed_lines)
-```
+- **`launcher.py`** starts Uvicorn inside the same process (server thread), then shows the studio in a **pywebview window** (Edge WebView2) with a **tray icon** (`pystray`): open, open in browser, data folder, `.env`, server log, restart, quit. A loading page shows while the server starts; window size is remembered; closing asks first if a project is still running (quit / keep in background / cancel).
+- **Fallbacks:** `--browser` (or `SUBFORGE_UI=browser`), or automatically when WebView2 is missing; `--no-tray` for a console server. A second launch asks the running copy to show its window (`POST /api/desktop/show`); if the running copy has no window it says so instead of opening a tab.
+- **Data folder** (`SUBFORGE_HOME` → `data` next to the exe → `%LOCALAPPDATA%\SubForge Studio`) holds `.env`, `storage/`, `launcher.log` and the WebView profile, so replacing the program never touches user data. `run.bat` sets `SUBFORGE_HOME=backend`, keeping the developer layout.
+- **Windowed-exe details:** stdout/stderr go to `launcher.log`; child consoles (ffmpeg, nvidia-smi) are hidden under the frozen exe and `pythonw`.
+- **Build:** `build_exe.bat` installs backend + `packaging/requirements-build.txt`, builds the frontend, fetches a static ffmpeg (`get_ffmpeg.ps1`) and runs PyInstaller (`subforge.spec`) → `dist\SubForge Studio\` (2–3 GB, mostly CUDA libraries). `run.bat` runs the same launcher from source using `packaging/requirements-desktop.txt`.
 
 ---
 
-### 5.5 Translation Base Interface (`backend/app/providers/translation/base.py`)
-
-```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Callable, Awaitable, List, Optional
-
-
-@dataclass
-class TranslatableSegment:
-    """Lightweight data contract passed into translation providers."""
-    index: int
-    start_time: float
-    end_time: float
-    original_text: str
-    translated_text: Optional[str] = None
-
-    @property
-    def duration(self) -> float:
-        return round(max(0.1, self.end_time - self.start_time), 2)
-
-
-# Callback type emitted after each batch completes for WebSocket streaming
-BatchProgressCallback = Callable[[List[TranslatableSegment], float], Awaitable[None]]
-
-
-class BaseTranslator(ABC):
-    """Abstract interface for all subtitle translation providers."""
-
-    @abstractmethod
-    async def translate_segments(
-        self,
-        segments: List[TranslatableSegment],
-        source_lang: str,
-        target_lang: str,
-        context_notes: str = "",
-        apply_rtl: bool = True,
-        on_batch_complete: Optional[BatchProgressCallback] = None,
-    ) -> List[TranslatableSegment]:
-        """
-        Translate a full list of subtitle segments while strictly preserving
-        indices and timestamps.
-        """
-        pass
-```
+## 9. Security and privacy
+- Server binds to `127.0.0.1`; CORS allow-list (`cors_origins`); `TrustedHostMiddleware` (`ALLOWED_HOSTS`) blocks DNS rebinding. Changing `HOST` to `0.0.0.0` requires adding the LAN names to `ALLOWED_HOSTS` and exposes a file-reading API — documented as unsafe by default.
+- API keys: `.env` (git-ignored) or typed in the UI for one run only; never persisted by the app. `.gitignore` also covers `*.exe`, `build/`, `dist/`, `storage/`, `data/` and `launcher.log`.
+- Sent to Gemini: subtitle text (and glossary), sampled frames when on-screen detection/speaker detection is used, nothing else. Audio and video stay local.
+- Housekeeping and cleanup only delete files inside `storage/` that the app created.
 
 ---
 
-### 5.6 Gemini Context-Aware Batch Translator (`backend/app/providers/translation/gemini_provider.py`)
-Use this exact reference implementation. It features a bidirectional sliding window (`previous_context` + `lookahead_context`), duration-aware constraints, Pydantic structured output enforcement, automatic retries with exponential backoff, and RTL BiDi post-processing. It automatically falls back to `settings.gemini_api_key` and `settings.gemini_model` from `.env` if not explicitly passed.
-
-```python
-import asyncio
-import json
-import logging
-from typing import List, Optional
-from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
-
-from app.core.config import settings
-from app.providers.translation.base import (
-    BaseTranslator,
-    TranslatableSegment,
-    BatchProgressCallback,
-)
-from app.utils.rtl_fixer import apply_rtl_fix
-
-logger = logging.getLogger(__name__)
-
-
-# =====================================================================
-# Pydantic Schemas for Gemini Structured Output
-# =====================================================================
-
-class TranslatedItemSchema(BaseModel):
-    index: int = Field(description="The exact index of the subtitle segment from the input.")
-    translated_text: str = Field(
-        description="The translated subtitle text. Use '\\n' if split into two lines (max 2 lines)."
-    )
-
-
-class TranslationBatchResponseSchema(BaseModel):
-    translations: List[TranslatedItemSchema] = Field(
-        description="List of translated subtitle segments matching the exact input indices."
-    )
-
-
-# =====================================================================
-# Broadcast-Grade System Prompt Builder
-# =====================================================================
-
-def build_subtitle_system_prompt(
-    source_lang: str,
-    target_lang: str,
-    context_notes: str = "",
-    max_chars_per_line: int = 42,
-) -> str:
-    """Construct the system prompt engineered for cinema/broadcast subtitle translation."""
-    extra_context = (
-        f"\n### SHOW / MOVIE SPECIFIC CONTEXT:\n{context_notes.strip()}\n"
-        if context_notes.strip()
-        else ""
-    )
-
-    return f"""You are an elite, broadcast-grade audiovisual subtitle translator specializing in translating movies and TV series from {source_lang} to {target_lang}.
-
-### CORE OBJECTIVE
-Translate the `target_batch` subtitle segments into natural, idiomatic, spoken {target_lang} suitable for cinema and television (Netflix/HBO broadcast standards), while strictly maintaining a 1-to-1 mapping with the original segment `index`.
-{extra_context}
-### STRICT TECHNICAL RULES
-1. **1-to-1 Index Mapping:**
-   - You MUST return the exact same number of items as provided in `target_batch`.
-   - Every returned item MUST have the exact `index` from `target_batch`.
-   - NEVER merge two segments into one, and NEVER skip or invent an index.
-   - Do NOT translate items from `previous_context` or `lookahead_context`—those are provided strictly for narrative continuity.
-
-2. **Line Length & Formatting Constraints:**
-   - Maximum **{max_chars_per_line} characters per line**.
-   - Maximum **2 lines per subtitle segment** (separated by a single `\\n`).
-   - If a translation exceeds {max_chars_per_line} characters, split it into two visually balanced lines at a natural linguistic boundary (e.g., after a comma, conjunction, or preposition).
-   - Respect `duration_sec`: If a segment is very short (e.g., under 1.5s), keep the phrasing concise so the viewer can read it comfortably (aim for 18 characters per second or fewer).
-
-3. **Split Sentences & Continuity:**
-   - Sentences frequently span across two or more consecutive subtitle segments.
-   - Inspect `previous_context` and `lookahead_context` to understand the full sentence before translating.
-   - Ensure each segment contains the semantic portion spoken during that exact timeframe so the text stays synchronized with the actor's speech on screen.
-
-4. **Dialogue & Dual Speakers:**
-   - If the original segment contains two speakers (indicated by leading hyphens, e.g., `- Hello.\\n- Hi.`), you MUST preserve the two-line hyphen structure (`- ...\\n- ...`).
-
-5. **Natural Spoken Hebrew & Linguistic Guidelines (When Target is Hebrew):**
-   - **Avoid "Translationese" (תרגומית):** Do not translate word-for-word. Translate the intent, subtext, and natural Hebrew conversational flow (e.g., translate "Are you kidding me?" as "אתה צוחק עליי?" or "את עובדת עליי?", never literally).
-   - **Gender & Plurality Resolution:** English "you" or gender-neutral verbs must be conjugated accurately into masculine/feminine and singular/plural based on speaker/listener clues in the surrounding context and show notes.
-   - **Slang, Humor & Profanity:** Preserve the exact register, tone, and intensity of the original dialogue. Do not censor profanity; use authentic Hebrew equivalents that match the character's voice.
-   - **Proper Nouns & Technical Terms:** Transliterate character names consistently across batches. Keep standard punctuation at the logical end of sentences (do NOT manually reverse punctuation; a downstream BiDi processor handles Unicode RTL marks).
-"""
-
-
-# =====================================================================
-# Gemini Translator Implementation
-# =====================================================================
-
-class GeminiTranslator(BaseTranslator):
-    """
-    Context-aware batch subtitle translator powered by the Google GenAI SDK.
-    Loads defaults from backend/.env via settings, supports sliding context windows,
-    structured JSON outputs, automatic retries, and RTL BiDi post-processing.
-    """
-
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model_name: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        prev_context_size: int = 5,
-        lookahead_size: int = 3,
-        max_chars_per_line: Optional[int] = None,
-        max_retries: int = 3,
-    ):
-        resolved_key = api_key or settings.gemini_api_key
-        if not resolved_key or resolved_key == "your_gemini_api_key_here":
-            raise ValueError(
-                "GEMINI_API_KEY is missing. Set it in backend/.env or provide it in the UI."
-            )
-
-        self.client = genai.Client(api_key=resolved_key)
-        self.model_name = model_name or settings.gemini_model
-        self.batch_size = batch_size or settings.gemini_batch_size
-        self.prev_context_size = prev_context_size
-        self.lookahead_size = lookahead_size
-        self.max_chars_per_line = max_chars_per_line or settings.max_chars_per_line
-        self.max_retries = max_retries
-
-    async def translate_segments(
-        self,
-        segments: List[TranslatableSegment],
-        source_lang: str = "English",
-        target_lang: str = "Hebrew",
-        context_notes: str = "",
-        apply_rtl: bool = True,
-        on_batch_complete: Optional[BatchProgressCallback] = None,
-    ) -> List[TranslatableSegment]:
-        """Translate all segments in batches with sliding context."""
-        if not segments:
-            return []
-
-        total_segments = len(segments)
-        system_prompt = build_subtitle_system_prompt(
-            source_lang=source_lang,
-            target_lang=target_lang,
-            context_notes=context_notes,
-            max_chars_per_line=self.max_chars_per_line,
-        )
-
-        is_rtl_target = target_lang.lower() in {"hebrew", "he", "עברית", "arabic", "ar"}
-
-        for start_idx in range(0, total_segments, self.batch_size):
-            end_idx = min(start_idx + self.batch_size, total_segments)
-            current_batch = segments[start_idx:end_idx]
-
-            # Gather already-translated previous segments for continuity
-            prev_start = max(0, start_idx - self.prev_context_size)
-            prev_context = segments[prev_start:start_idx]
-
-            # Gather upcoming untranslated segments for split-sentence awareness
-            lookahead_end = min(total_segments, end_idx + self.lookahead_size)
-            lookahead_context = segments[end_idx:lookahead_end]
-
-            await self._translate_single_batch(
-                target_batch=current_batch,
-                prev_context=prev_context,
-                lookahead_context=lookahead_context,
-                system_prompt=system_prompt,
-                apply_rtl=(apply_rtl and is_rtl_target),
-            )
-
-            # Calculate overall progress and notify WebSocket listener if provided
-            progress_pct = round((end_idx / total_segments) * 100, 2)
-            logger.info(
-                f"Translated batch {start_idx + 1}-{end_idx}/{total_segments} ({progress_pct}%)"
-            )
-
-            if on_batch_complete:
-                await on_batch_complete(current_batch, progress_pct)
-
-        return segments
-
-    async def _translate_single_batch(
-        self,
-        target_batch: List[TranslatableSegment],
-        prev_context: List[TranslatableSegment],
-        lookahead_context: List[TranslatableSegment],
-        system_prompt: str,
-        apply_rtl: bool,
-    ) -> None:
-        """Execute a single batch translation request with retry and index verification."""
-        payload = {
-            "previous_context": [
-                {
-                    "index": seg.index,
-                    "original_text": seg.original_text,
-                    "translated_text": seg.translated_text or "",
-                }
-                for seg in prev_context
-            ],
-            "target_batch": [
-                {
-                    "index": seg.index,
-                    "duration_sec": seg.duration,
-                    "original_text": seg.original_text,
-                }
-                for seg in target_batch
-            ],
-            "lookahead_context": [
-                {
-                    "index": seg.index,
-                    "original_text": seg.original_text,
-                }
-                for seg in lookahead_context
-            ],
-        }
-
-        user_prompt = json.dumps(payload, ensure_ascii=False, indent=2)
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                # Run synchronous SDK call in a worker thread to avoid blocking the event loop
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=self.model_name,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        response_mime_type="application/json",
-                        response_schema=TranslationBatchResponseSchema,
-                        temperature=0.2,  # Low temperature for faithful, consistent translation
-                    ),
-                )
-
-                parsed_response = TranslationBatchResponseSchema.model_validate_json(
-                    response.text
-                )
-                translation_map = {
-                    item.index: item.translated_text
-                    for item in parsed_response.translations
-                }
-
-                # Populate translated text back onto the segment objects
-                missing_indices = []
-                for seg in target_batch:
-                    if seg.index in translation_map:
-                        raw_translation = translation_map[seg.index].strip()
-                        seg.translated_text = (
-                            apply_rtl_fix(raw_translation)
-                            if apply_rtl
-                            else raw_translation
-                        )
-                    else:
-                        missing_indices.append(seg.index)
-
-                if missing_indices:
-                    raise ValueError(
-                        f"Gemini response omitted segment indices: {missing_indices}"
-                    )
-
-                return  # Batch succeeded
-
-            except Exception as exc:
-                logger.warning(
-                    f"Batch translation attempt {attempt}/{self.max_retries} failed: {exc}"
-                )
-                if attempt == self.max_retries:
-                    logger.error(
-                        "Max retries reached for batch. Falling back to original text for missing segments."
-                    )
-                    for seg in target_batch:
-                        if not seg.translated_text:
-                            seg.translated_text = seg.original_text
-                else:
-                    # Exponential backoff before retry
-                    await asyncio.sleep(1.5 * (2 ** (attempt - 1)))
-```
+## 10. Testing and quality gates
+- Backend: `pytest` in `backend/tests` (~260 tests). Whisper and Gemini are replaced by fakes; ffmpeg-based tests run end to end on generated clips (forced track, frame scan, whole pipeline, sync with synthetic delays/frame-rate/cuts). Areas: RTL fixer, SRT formatter, refine quality, Whisper provider (cancel, fallback), Gemini provider (retries, flags), settings/pricing/Flex, foreign speech, gap recovery, word snap, retime, row translate, glossary profiles, storage cleanup, sync, insert line, desktop launcher.
+- Frontend: `npx tsc -b`, `npx oxlint src` (0 warnings) and `npm run build` must pass; UI flows are checked in a headless browser in both English and Hebrew.
+- Windows-only behavior (tray, WebView2 window, CUDA loading) is verified manually on a Windows PC; the launcher's pure logic is unit-tested.
 
 ---
 
-### 5.7 Video Streaming Endpoint (`GET /api/media/stream/{job_id}`)
-Support HTTP `Range` requests (`206 Partial Content`) so the frontend HTML5 `<video>` player can seek smoothly through large local video files without loading the entire file into memory.
-
----
-
-## 6. UI/UX Specification & Studio Workspace Flows
-
-### Visual Identity
-* **Theme:** Sleek Cinema Dark Mode (`#09090b` background, `#18181b` surface cards, `#6366f1` indigo primary accents, emerald/amber/rose semantic status badges).
-* **Typography:** `Inter` or `Plus Jakarta Sans` for UI controls, `JetBrains Mono` for timecodes (`00:01:24,450`), and `Heebo` / `Rubik` for clear RTL Hebrew subtitle editing.
-
-### Screen 1: Media Ingest & Pipeline Setup
-1. **Dual Input Card:**
-   * **Tab A — Local File Path:** Direct text input with instant file-existence check and `ffprobe` metadata inspection (ideal for multi-gigabyte MKV/MP4 files already on disk).
-   * **Tab B — Drag & Drop Upload:** Standard browser file dropzone with upload progress bar.
-2. **Media Inspector Card (Appears immediately after probing):**
-   * Displays video resolution, duration, container format, and a **Dropdown to select the exact Audio Track** (e.g., `Track #0: English (AAC 5.1)`, `Track #1: Japanese (FLAC 2.0)`).
-3. **Pipeline Configuration:**
-   * **Transcription Settings:** Whisper Model selector (`tiny`, `base`, `small`, `medium`, `large-v3`), Source Language (`Auto-detect` or explicit code), VAD Filter toggle.
-   * **Gemini Translation Step (Optional Toggle):**
-     * Enable/Disable toggle.
-     * Target Language selector (`Hebrew` default, `English`, `Spanish`, `Russian`, etc.).
-     * Gemini Model selector (`gemini-2.5-flash` default, `gemini-2.5-pro`).
-     * Status badge indicating whether `GEMINI_API_KEY` is already loaded from `backend/.env` (with an optional input field to override the key for the current session if needed).
-     * Optional **Show / Context Notes** textarea (e.g., *"Sci-fi thriller, main protagonist Sarah speaks in feminine singular"*).
-
-### Screen 2: Live Execution & Studio Workspace
-* **Top Pipeline Stepper:** Interactive 5-stage progress bar (`Probe` -> `Extract Audio` -> `Transcribe` -> `Refine` -> `Translate`) displaying live completion percentage, processing speed badge (e.g., `5.2x Real-Time`), ETA countdown, and active compute device badge (`CUDA FP16` or `CPU INT8`).
-* **Left Pane (40% width) — Video Sync Player:**
-  * Streams the source video with a live dynamic WebVTT subtitle overlay.
-  * Includes a quick toggle to switch the video overlay between **Original**, **Translated (RTL)**, or **Dual Stacked** view.
-* **Right Pane (60% width) — Interactive Subtitle Table:**
-  * Columns: `#`, `Start / End Timecode` (with `+/- 100ms` nudge buttons), `Original Text` (editable auto-resizing textarea), `Translated Text` (with `dir="rtl"` when target is Hebrew/Arabic), and `CPS Badge` (green when `<= 18`, amber `18-20`, red `> 20`).
-  * **Live Stream & Auto-Scroll:** During transcription and translation, rows populate in real time via WebSocket. Clicking any row seeks the video player to `start_time`.
-  * **Search & Replace Bar:** Instant filter and bulk find-and-replace across original or translated columns.
-* **Export Toolbar:**
-  * One-click download for `.srt` or `.vtt` (Original or Translated).
-  * Checkbox toggle: **Apply RTL BiDi Punctuation Fix (Hebrew/Arabic)** (enabled by default for RTL targets).
-
----
-
-## 7. Automated Verification & Unit Tests (`backend/tests/test_rtl_fixer.py`)
-
-Include and run these unit tests alongside `test_srt_formatter.py` to verify text formatting and BiDi safety:
-
-```python
-from app.utils.rtl_fixer import (
-    RLM,
-    contains_rtl,
-    fix_rtl_line,
-    apply_rtl_fix,
-)
-
-
-def test_contains_rtl_detects_hebrew():
-    assert contains_rtl("שלום עולם") is True
-    assert contains_rtl("Hello world!") is False
-
-
-def test_fix_rtl_line_wraps_hebrew_with_rlm():
-    line = "אתה צוחק עליי?"
-    fixed = fix_rtl_line(line)
-    assert fixed == f"{RLM}אתה צוחק עליי?{RLM}"
-
-
-def test_fix_rtl_line_leaves_english_untouched():
-    line = "Wait for me!"
-    assert fix_rtl_line(line) == "Wait for me!"
-
-
-def test_fix_rtl_line_normalizes_dialogue_hyphen():
-    line = "-לא עכשיו!\n-למה?"
-    fixed = apply_rtl_fix(line)
-    expected = f"{RLM}- לא עכשיו!{RLM}\n{RLM}- למה?{RLM}"
-    assert fixed == expected
-
-
-def test_apply_rtl_fix_is_idempotent():
-    line = "זה עובד מצוין..."
-    once = apply_rtl_fix(line)
-    twice = apply_rtl_fix(once)
-    assert once == twice
-```
-
----
-
-## 8. Phased Implementation Plan for Antigravity
-
-Execute this project in **4 sequential phases**. Verify each phase before moving to the next.
-
-### Phase 1: Backend Foundation, `.env` Config, Utilities & Unit Tests
-1. Set up `/backend` directory, `requirements.txt` (`fastapi`, `uvicorn[standard]`, `sqlmodel`, `faster-whisper`, `google-genai>=1.0.0`, `pydantic-settings`, `python-multipart`, `pytest`, `pytest-asyncio`, `httpx`), `backend/.env.example`, and `backend/.env`.
-2. Implement `config.py` (Section 5.1), `database.py`, `hardware.py`, `rtl_fixer.py` (Section 5.4), `srt_formatter.py` (Section 5.3), and `refine_stage.py`.
-3. Implement `probe_stage.py` (`ffprobe` JSON parser) and `audio_stage.py` (Section 5.2).
-4. Create and run `pytest` suites (`test_rtl_fixer.py`, `test_srt_formatter.py`, `test_refine_stage.py`) and ensure 100% pass rate.
-
-### Phase 2: AI Providers, Pipeline Orchestrator & API Routes
-1. Implement `BaseTranscriber` and `FasterWhisperTranscriber` (`word_timestamps=True`, `vad_filter=True`) emitting live segment callbacks.
-2. Implement `BaseTranslator` (Section 5.5), `NoopTranslator`, and `GeminiTranslator` (using the exact implementation in Section 5.6).
-3. Implement `orchestrator.py` and `ws_manager.py` to run the pipeline asynchronously and broadcast real-time WebSocket events.
-4. Build REST endpoints (`routes_media.py` with HTTP Range video streaming, `routes_jobs.py`, `routes_export.py`, and `routes_system.py` exposing hardware and `.env` Gemini key status).
-
-### Phase 3: Frontend Setup & Media Ingest Experience
-1. Initialize `/frontend` with Vite, React, TypeScript, Tailwind CSS, and Lucide icons.
-2. Implement typed API service (`api.ts`), Zustand store (`useJobStore.ts`), and WebSocket synchronization hook.
-3. Build `Sidebar` (showing hardware badge and `.env` Gemini API Key configured indicator), `Header`, `MediaDropzone` (Upload + Local Path tabs), `StreamSelector` (audio track picker), and `PipelineConfig`.
-
-### Phase 4: Real-Time Studio Workspace, Video Sync & End-to-End Polish
-1. Build `LivePipelineBar` and the split-pane Studio Workspace.
-2. Implement `VideoSyncPlayer` with HTTP Range playback and dynamic WebVTT blob track updates so inline edits reflect on the video immediately.
-3. Implement `SubtitleTable` with inline editing, RTL alignment, timestamp nudging, CPS warning badges, Search & Replace, and `ExportToolbar`.
-4. Verify full end-to-end flow and generate a clean `README.md` documenting `.env` setup and startup commands.
+## 11. Extending the system
+- **New transcription or translation engine:** implement `BaseTranscriber` / `BaseTranslator` and return the shared dataclasses (`RawSegment`, `TranslatableSegment`). Each stage builds its provider itself (`TranscribeStage`, `TranslateStage._make_translator`) and also accepts an injected one, which is how the tests use fakes.
+- **New pipeline stage:** subclass `PipelineStage` (`pipeline/stages/base.py`: a `name` and `async execute(ctx, on_progress)`), add a `JobStatus` value if it deserves its own progress state, add it to `PipelineOrchestrator._stages()`, add the matching label in the frontend `LivePipelineBar` and both i18n files.
+- **New Gemini model or price change:** edit `core/model_catalog.py` only (models, tasks, prices, thinking options, retired-model migration).
+- **New DB column:** add it to the model and to `_ADDED_COLUMNS` in `core/database.py`.
+- **New UI language:** add `i18n/<code>.ts` with the same typed keys and extend `Language` in `useUiStore`.
