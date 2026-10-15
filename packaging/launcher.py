@@ -109,7 +109,8 @@ def redirect_stdio(home: Path) -> None:
 
 def hide_child_consoles() -> None:
     """Without this every ffmpeg/ffprobe/nvidia-smi call would flash a black console window."""
-    if not (WINDOWS and FROZEN):
+    # pythonw.exe (run.bat) has no console either
+    if not (WINDOWS and (FROZEN or Path(sys.executable).name.lower() == "pythonw.exe")):
         return
     create_no_window = 0x08000000
     original_init = subprocess.Popen.__init__

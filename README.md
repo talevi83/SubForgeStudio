@@ -246,7 +246,7 @@ npm run build
 ## 🏃 Running the Application
 
 ### Option A: One-click (Windows)
-Double-click `run.bat`. It creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the browser.
+Double-click `run.bat`. It creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the old behavior: a console server and the studio in your browser.
 
 ### Option B: Standalone Production Mode (Single Command)
 Run the backend server, which automatically serves the compiled frontend on port 8000:

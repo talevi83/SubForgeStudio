@@ -1,0 +1,5 @@
+# Packages for the studio's own window and tray icon (used by run.bat and the exe launcher)
+pystray>=0.19.5
+pillow>=10.0
+# Edge WebView2 on Windows (pulls in pythonnet there)
+pywebview>=6.2
