@@ -47,3 +47,6 @@ _to_delete/
 *.exe
 packaging/ffmpeg/
 launcher.log
+
+# App window profile (run.bat / exe)
+webview/
