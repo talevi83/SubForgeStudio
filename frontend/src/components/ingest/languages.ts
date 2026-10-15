@@ -31,3 +31,19 @@ const LANGUAGE_NAMES: Record<string, string> = {
 
 export const languageLabel = (code?: string | null) =>
   code ? LANGUAGE_NAMES[code] || code.toUpperCase() : '';
+
+/** "Hebrew" -> "he" (names as in TARGET_LANGUAGES); a known code is returned as is. */
+export const languageCode = (language?: string | null): string | null => {
+  if (!language) return null;
+  const lower = language.trim().toLowerCase();
+  if (LANGUAGE_NAMES[lower]) return lower;
+  const hit = Object.entries(LANGUAGE_NAMES).find(([, name]) => name.toLowerCase() === lower);
+  return hit ? hit[0] : null;
+};
+
+/** Is the subtitle file in the language that is spoken? With "auto", most videos are English. */
+export function sameLanguage(fileLanguage: string | null | undefined, spoken: string): boolean {
+  const file = languageCode(fileLanguage);
+  if (!file) return false;
+  return spoken && spoken !== 'auto' ? spoken === file : file === 'en';
+}

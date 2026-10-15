@@ -70,6 +70,12 @@ def _job_to_response(
             glossary = json.loads(job.glossary_json)
         except Exception:
             pass
+    sync_report = None
+    if job.sync_report_json:
+        try:
+            sync_report = json.loads(job.sync_report_json)
+        except Exception:
+            pass
     usage = None
     if job.usage_json:
         try:
@@ -116,6 +122,9 @@ def _job_to_response(
         usage=usage,
         segment_count=segment_count,
         failed_translation_count=failed_count,
+        job_kind=job.job_kind or "transcribe",
+        sync_file_name=job.sync_file_name,
+        sync_report=sync_report,
         segments=segments,
         created_at=job.created_at,
         updated_at=job.updated_at,
@@ -138,6 +147,9 @@ async def create_job(req: JobCreate, session: Session = Depends(get_session)):
 
     job_id = f"job_{uuid.uuid4().hex[:10]}"
     resolved = path.resolve()
+    syncing = req.sync_cues is not None
+    if syncing and len(req.sync_cues) < 3:
+        raise HTTPException(status_code=400, detail="The subtitle file needs at least 3 lines to sync")
 
     new_job = Job(
         id=job_id,
@@ -158,13 +170,23 @@ async def create_job(req: JobCreate, session: Session = Depends(get_session)):
         context_notes=req.context_notes,
         glossary_profile=clean_name(req.glossary_profile) or None,
     )
+    if syncing:
+        new_job.job_kind = "sync"
+        new_job.enable_translation = False
+        new_job.sync_file_name = req.sync_file_name or "subtitles.srt"
+        new_job.sync_source_json = json.dumps({
+            "cues": [c.model_dump() for c in req.sync_cues],
+            "language": req.sync_language,
+            "use_gemini": req.sync_use_gemini,
+        }, ensure_ascii=False)
 
     session.add(new_job)
     session.commit()
     session.refresh(new_job)
 
     # The API key override (if any) is handed to the pipeline in memory only.
-    orchestrator = PipelineOrchestrator(job_id=job_id, api_key=req.gemini_api_key_override)
+    orchestrator = PipelineOrchestrator(
+        job_id=job_id, mode="sync" if syncing else "full", api_key=req.gemini_api_key_override)
     spawn_background(orchestrator.run())
 
     return _job_to_response(new_job)

@@ -24,6 +24,10 @@ _ADDED_COLUMNS = {
         "detect_onscreen_text": "BOOLEAN NOT NULL DEFAULT 0",
         "usage_json": "VARCHAR",
         "glossary_profile": "VARCHAR",
+        "job_kind": "VARCHAR NOT NULL DEFAULT 'transcribe'",
+        "sync_file_name": "VARCHAR",
+        "sync_source_json": "VARCHAR",
+        "sync_report_json": "VARCHAR",
     },
     "subtitle_segments": {
         "translation_failed": "BOOLEAN NOT NULL DEFAULT 0",

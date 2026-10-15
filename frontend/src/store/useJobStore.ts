@@ -12,6 +12,8 @@ import type {
   Glossary,
   RetranslateOptions,
   WebSocketEventPayload,
+  IngestMode,
+  ParsedSubtitles,
 } from '../types';
 
 const CONFIG_STORAGE_KEY = 'subforge.pipelineConfig';
@@ -53,6 +55,35 @@ function saveConfig(config: JobConfig) {
 
 const savedConfig = loadSavedConfig();
 
+const SYNC_PREFS_KEY = 'subforge.syncPrefs';
+
+interface SyncPrefs {
+  ingestMode: IngestMode;
+  syncUseGemini: boolean;
+}
+
+function loadSyncPrefs(): SyncPrefs {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SYNC_PREFS_KEY) || '{}');
+    return {
+      ingestMode: parsed.ingestMode === 'sync' ? 'sync' : 'transcribe',
+      syncUseGemini: parsed.syncUseGemini !== false,
+    };
+  } catch {
+    return { ingestMode: 'transcribe', syncUseGemini: true };
+  }
+}
+
+function saveSyncPrefs(prefs: SyncPrefs) {
+  try {
+    localStorage.setItem(SYNC_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* ignore */
+  }
+}
+
+const savedSyncPrefs = loadSyncPrefs();
+
 interface SeekRequest {
   time: number;
   nonce: number;
@@ -77,6 +108,16 @@ interface JobState {
   timingBusy: boolean;
   timingNote: string | null;
   timingUndo: { jobId: string; times: { id: number; start_time: number; end_time: number }[] } | null;
+  /** New project: make subtitles from the audio, or sync a subtitle file the user already has */
+  ingestMode: IngestMode;
+  syncFile: ParsedSubtitles | null;
+  /** Language of the subtitle file (detected; the user may correct it) */
+  syncLanguage: string | null;
+  syncUseGemini: boolean;
+  setIngestMode: (mode: IngestMode) => void;
+  setSyncFile: (file: ParsedSubtitles | null) => void;
+  setSyncLanguage: (language: string) => void;
+  setSyncUseGemini: (value: boolean) => void;
 
   fetchSystemInfo: () => Promise<void>;
   fetchJobs: () => Promise<void>;
@@ -210,6 +251,21 @@ export const useJobStore = create<JobState>((set, get) => {
     timingBusy: false,
     timingNote: null,
     timingUndo: null,
+    ingestMode: savedSyncPrefs.ingestMode,
+    syncFile: null,
+    syncLanguage: null,
+    syncUseGemini: savedSyncPrefs.syncUseGemini,
+
+    setIngestMode: (ingestMode) => {
+      saveSyncPrefs({ ingestMode, syncUseGemini: get().syncUseGemini });
+      set({ ingestMode });
+    },
+    setSyncFile: (syncFile) => set({ syncFile, syncLanguage: syncFile?.language || null }),
+    setSyncLanguage: (syncLanguage) => set({ syncLanguage }),
+    setSyncUseGemini: (syncUseGemini) => {
+      saveSyncPrefs({ ingestMode: get().ingestMode, syncUseGemini });
+      set({ syncUseGemini });
+    },
 
     fetchSystemInfo: async () => {
       try {
@@ -269,7 +325,15 @@ export const useJobStore = create<JobState>((set, get) => {
 
     clearActiveJob: () => {
       get().disconnectWebSocket();
-      set({ activeJob: null, probeResult: null, selectedSegmentIndex: null, seekRequest: null, stageMessage: null });
+      set({
+        activeJob: null,
+        probeResult: null,
+        syncFile: null,
+        syncLanguage: null,
+        selectedSegmentIndex: null,
+        seekRequest: null,
+        stageMessage: null,
+      });
     },
 
     setProbeResult: (probeResult) => {
@@ -286,8 +350,10 @@ export const useJobStore = create<JobState>((set, get) => {
     },
 
     createAndStartJob: async () => {
-      const { probeResult, pipelineConfig } = get();
+      const { probeResult, pipelineConfig, ingestMode, syncFile, syncLanguage, syncUseGemini } = get();
       if (!probeResult) return null;
+      const syncing = ingestMode === 'sync';
+      if (syncing && !syncFile) return null;
 
       try {
         set({ isLoading: true, error: null });
@@ -296,6 +362,15 @@ export const useJobStore = create<JobState>((set, get) => {
           gemini_api_key_override: pipelineConfig.gemini_api_key_override || undefined,
           video_path: probeResult.file_path,
           file_name: probeResult.file_name,
+          ...(syncing && syncFile
+            ? {
+                enable_translation: false,
+                sync_cues: syncFile.cues,
+                sync_file_name: syncFile.file_name,
+                sync_language: syncLanguage || syncFile.language,
+                sync_use_gemini: syncUseGemini,
+              }
+            : {}),
         });
 
         set((state) => ({

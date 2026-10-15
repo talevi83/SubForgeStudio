@@ -1,4 +1,4 @@
-import type { SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
+import type { ParsedSubtitles, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -57,7 +57,23 @@ export const api = {
     });
   },
 
-  createJob(params: JobConfig & { video_path: string; file_name?: string }): Promise<Job> {
+  /** Parse a subtitle file the user wants synced (SRT / WebVTT / ASS; any encoding). Nothing is stored. */
+  parseSubtitles(file: File): Promise<ParsedSubtitles> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request(`${API_BASE}/media/parse-subtitles`, { method: 'POST', body: formData }, 'Could not read the subtitle file');
+  },
+
+  createJob(
+    params: JobConfig & {
+      video_path: string;
+      file_name?: string;
+      sync_cues?: SyncCue[];
+      sync_file_name?: string;
+      sync_language?: string;
+      sync_use_gemini?: boolean;
+    }
+  ): Promise<Job> {
     return request(`${API_BASE}/jobs`, json('POST', params), 'Failed to create job');
   },
 
@@ -165,6 +181,7 @@ export const api = {
     enable_translation: boolean;
     detect_onscreen_text: boolean;
     has_forced_track?: boolean;
+    sync_lines?: number;
     settings?: AppSettings;
   }): Promise<CostEstimate> {
     return request(`${API_BASE}/settings/estimate`, json('POST', params), 'Could not estimate cost');

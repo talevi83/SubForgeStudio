@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # detector misses under gunfire, engines, music and radio filtering
     whisper_gap_recovery: bool = True
     whisper_snap_starts: bool = True      # pull word starts that sit inside a pause to the speech onset
+    # "Sync existing subtitles": look for subtitles burned into the picture (local, no AI)
+    sync_detect_burned_in: bool = True
+    sync_burned_in_fps: float = 5.0
 
     # Subtitle Rules
     max_chars_per_line: int = 42

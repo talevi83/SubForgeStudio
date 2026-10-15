@@ -51,6 +51,18 @@
    - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
+9. **⏱ Sync Existing Subtitles:**
+   - Choose **Sync my subtitles** on the setup screen, pick the video and a subtitle file you already have (SRT, WebVTT or ASS, in any language and encoding: UTF-8/UTF-16/Windows-1255 Hebrew files are read correctly). The text is never changed, only the timing.
+   - Whisper transcribes the audio and Silero VAD maps the speech. A first local pass matches the rhythm of the lines to the speech: it finds the delay, a different frame rate (25 ↔ 23.976/24 fps and others) and different cuts (a recap or scene that is longer or missing), by cross-correlation plus dynamic programming over per-line offsets.
+   - Each line then snaps to its best evidence:
+     - **Its own words:** a file in the spoken language (English file on English audio) is matched to Whisper's word timestamps locally.
+     - **Gemini:** a file in another language (Hebrew on English audio) is matched line by line to the transcript phrases it translates (optional; uses the *Translation* model from Settings, typically cents per episode).
+     - **Subtitles in the video itself:** an embedded text subtitle track, or subtitles **burned into the picture**, give exact on/off times. Burned-in text is detected locally (no AI) while Whisper runs, and is used only when it fits the speech.
+     - **On-screen titles:** with *Time titles and signs* on, lines that translate a sign or a place/time title take the timing of that text (Gemini Vision scan). Lines the file places at the top (`{\an8}`) are treated as signs.
+     - **Speech rhythm:** everything else starts at the nearest speech onset.
+   - Wrong matches are outvoted by their neighbours, and the file's order is kept without new overlaps. Lines placed with low confidence show up under *Only problems* in the editor.
+   - The result is a normal project: edit, *Re-check timing*, export. A file in another language becomes the translation, with what is said in the audio next to it as the original. A summary shows how the lines were placed (and the frame rate, shift and cuts it found).
+
 ---
 
 ## ⚙️ Settings, Models & Pricing
@@ -105,7 +117,10 @@ SubsForge Studio/
 │   │   ├── models/             # SQLModel tables & Pydantic schemas
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.py # Runs the stages: GPU queue, cancel, save-as-you-go, recovery after restart
-│   │   │   ├── stages/         # probe, audio, transcribe, ocr (on-screen text), refine, translate
+│   │   │   ├── stages/         # probe, audio, transcribe, ocr (on-screen text), refine, translate, sync
+│   │   │   ├── sync_align.py   # Sync: offset / frame rate / cuts (correlation + dynamic programming)
+│   │   │   ├── sync_text.py    # Sync: line-to-speech anchors (local word matching, Gemini)
+│   │   │   ├── sync_burned.py  # Sync: burned-in subtitle detection (local frame analysis)
 │   │   │   ├── gap_recovery.py # Missed-speech recovery (Whisper without VAD over uncovered audio)
 │   │   │   ├── word_snap.py    # Subtitle start alignment
 │   │   │   ├── speech_regions.py, retime.py   # Speech maps, "Re-check timing" and drag-to-reorder
@@ -113,7 +128,7 @@ SubsForge Studio/
 │   │   │   ├── speaker_detect.py, qa.py       # Gender detection from frames, quality check
 │   │   │   └── context.py                     # Job context passed between stages
 │   │   ├── providers/          # faster-whisper transcription; Gemini (+ Flex wrapper) and Noop translation
-│   │   └── utils/              # SRT/VTT formatter, RTL fixer, language list, text rules
+│   │   └── utils/              # SRT/VTT formatter, subtitle file parser, RTL fixer, languages, text rules
 │   └── tests/                  # pytest suites
 ├── frontend/                   # React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand
 │   ├── vite.config.ts          # Build & dev proxy to the backend
@@ -142,8 +157,8 @@ Interactive docs are at `http://localhost:8000/docs` while the server runs.
 | Area | Endpoints |
 |---|---|
 | System | `GET /api/system/info` (hardware, models), `GET /api/system/log` (server log) |
-| Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range) |
-| Jobs | `POST/GET /api/jobs`, `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
+| Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range), `POST /api/media/parse-subtitles` (read a subtitle file to sync) |
+| Jobs | `POST/GET /api/jobs` (with `sync_cues` = a sync job), `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
 | Editing | `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
 | Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
 | Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
@@ -208,6 +223,7 @@ Optional settings (defaults shown):
 | `UPLOAD_RETENTION_HOURS` | `24` | Unused browser uploads older than this are removed at startup. |
 | `STORAGE_DIR` / `DATABASE_URL` | `./storage` / `sqlite:///./storage/subforge.db` | Where data and the database live. |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Server address. Keep `127.0.0.1` unless you really want LAN access: the API can read any file path on this PC. |
+| `SYNC_DETECT_BURNED_IN` / `SYNC_BURNED_IN_FPS` | `true` / `5` | *Sync my subtitles*: look for subtitles burned into the picture (local), and how many frames per second to check. |
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
 
 An API key typed into the UI is used for that run only and is never written to disk.
@@ -313,3 +329,4 @@ The test suite covers:
 - **`test_qa.py`**: quality check (untranslated words, glossary mismatches, pronoun/verb agreement).
 - **`test_storage_cleanup.py`**: storage report and cleanup never touch active jobs, your own videos or the live server log.
 - **`test_logs.py`**: per-job log capture (including worker threads) and log export.
+- **`test_sync.py`**: subtitle file parsing (formats, encodings, positions, language), alignment (delay, frame rate, cuts, wrong anchors), word and Gemini matching (fake client), burned-in detection, and sync jobs end to end through the API (same language, Hebrew with Gemini, burned-in subtitles).

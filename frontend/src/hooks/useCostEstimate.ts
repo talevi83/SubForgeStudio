@@ -7,6 +7,8 @@ interface Params {
   enable_translation: boolean;
   detect_onscreen_text: boolean;
   has_forced_track?: boolean;
+  /** "Sync my subtitles" with Gemini line matching: the number of lines in the file */
+  sync_lines?: number;
   settings?: AppSettings | null;
 }
 

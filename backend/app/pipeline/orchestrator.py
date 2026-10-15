@@ -21,6 +21,7 @@ from app.pipeline.stages.base import PipelineStage
 from app.pipeline.stages.ocr_stage import OnScreenTextStage, remove_frames
 from app.pipeline.stages.probe_stage import ProbeStage
 from app.pipeline.stages.refine_stage import RefineStage
+from app.pipeline.stages.sync_stage import SyncStage, sync_summary
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.pipeline.stages.translate_stage import TranslateStage
 from app.providers.gemini_calls import FlexState
@@ -49,6 +50,7 @@ ACTIVE_STATUSES = {
     JobStatus.SCANNING_ONSCREEN,
     JobStatus.REFINING,
     JobStatus.TRANSLATING,
+    JobStatus.SYNCING,
 }
 
 # Relative share of the overall progress bar per stage (transcription dominates runtime)
@@ -59,6 +61,7 @@ STAGE_WEIGHTS = {
     JobStatus.SCANNING_ONSCREEN: 12,
     JobStatus.REFINING: 2,
     JobStatus.TRANSLATING: 28,
+    JobStatus.SYNCING: 10,
 }
 
 
@@ -137,6 +140,7 @@ class PipelineOrchestrator:
 
     mode="full":      probe → extract audio → transcribe → refine → translate
     mode="translate": (re)translate the job's existing segments only
+    mode="sync":      probe → extract audio → transcribe (→ on-screen text) → sync the user's subtitle file
     """
 
     def __init__(
@@ -227,6 +231,13 @@ class PipelineOrchestrator:
                 gemini_thinking=self.thinking,
                 cancel_flag=self.cancel_flag,
             )
+            if self.mode == "sync" and job.sync_source_json:
+                source = json.loads(job.sync_source_json)
+                ctx.sync_cues = source.get("cues") or []
+                ctx.sync_language = source.get("language")
+                ctx.sync_use_gemini = bool(source.get("use_gemini", True))
+                ctx.sync_file_name = job.sync_file_name
+                ctx.enable_translation = False
             ctx.usage = UsageTracker()
             ctx.flex_state = FlexState()
             if self.mode == "translate":
@@ -252,6 +263,16 @@ class PipelineOrchestrator:
         translate = TranslateStage(on_batch_persist=self._persist_translations)
         if self.mode == "translate":
             return [(JobStatus.TRANSLATING, translate)]
+        if self.mode == "sync":
+            stages_sync: List[tuple] = [
+                (JobStatus.PROBING, ProbeStage()),
+                (JobStatus.EXTRACTING_AUDIO, AudioExtractionStage()),
+                (JobStatus.TRANSCRIBING, TranscribeStage()),
+            ]
+            if ctx.detect_onscreen_text:
+                stages_sync.append((JobStatus.SCANNING_ONSCREEN, OnScreenTextStage()))
+            stages_sync.append((JobStatus.SYNCING, SyncStage()))
+            return stages_sync
         stages: List[tuple] = [
             (JobStatus.PROBING, ProbeStage()),
             (JobStatus.EXTRACTING_AUDIO, AudioExtractionStage()),
@@ -285,6 +306,13 @@ class PipelineOrchestrator:
         if task is not None:
             await asyncio.gather(task, return_exceptions=True)
         remove_frames(self.job_id)
+
+    async def _stop_burned_detection(self, ctx: Optional[PipelineContext]) -> None:
+        task = getattr(ctx, "burned_task", None) if ctx is not None else None
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     def _persist_usage(self, ctx: Optional[PipelineContext]) -> None:
         """Add this run's Gemini usage to the job's running total (also for failed/cancelled runs)."""
@@ -459,9 +487,15 @@ class PipelineOrchestrator:
                 elif stage_status == JobStatus.EXTRACTING_AUDIO:
                     # Sample video frames in the background while the GPU transcribes
                     OnScreenTextStage.start_frame_sampling(ctx)
+                    if self.mode == "sync" and settings.sync_detect_burned_in:
+                        from app.pipeline.sync_burned import detect_burned_subtitles
+
+                        ctx.burned_task = asyncio.ensure_future(
+                            detect_burned_subtitles(ctx.video_path, ctx.cancel_flag, settings.sync_burned_in_fps))
                 elif stage_status == JobStatus.TRANSCRIBING:
                     self._release_gpu()
-                    self._delete_audio()
+                    if self.mode != "sync":  # syncing still needs the audio for voice detection
+                        self._delete_audio()
                     self._update_job(detected_language=ctx.detected_language)
                 elif stage_status == JobStatus.SCANNING_ONSCREEN:
                     await self._stop_frame_sampling(ctx)
@@ -470,6 +504,19 @@ class PipelineOrchestrator:
                     await self._broadcast({
                         "event": "SEGMENTS_REFINED",
                         "stage": JobStatus.REFINING.value,
+                        "progress_percent": round(done_weight / total_weight * 100, 1),
+                        "segments_batch": [_segment_payload(self.job_id, s) for s in ctx.refined_segments],
+                    })
+                elif stage_status == JobStatus.SYNCING:
+                    self._save_segments(ctx.refined_segments)
+                    self._update_job(
+                        target_language=ctx.target_language,
+                        sync_report_json=json.dumps(ctx.sync_report or {}, ensure_ascii=False),
+                    )
+                    self._delete_audio()
+                    await self._broadcast({
+                        "event": "SEGMENTS_REFINED",
+                        "stage": JobStatus.SYNCING.value,
                         "progress_percent": round(done_weight / total_weight * 100, 1),
                         "segments_batch": [_segment_payload(self.job_id, s) for s in ctx.refined_segments],
                     })
@@ -499,7 +546,8 @@ class PipelineOrchestrator:
                 "event": "JOB_COMPLETED",
                 "stage": "COMPLETED",
                 "progress_percent": 100.0,
-                "message": warning or "All pipeline stages completed successfully",
+                "message": warning or (sync_summary(ctx.sync_report) if ctx.sync_report
+                                       else "All pipeline stages completed successfully"),
             })
 
         except PipelineCancelled:
@@ -514,6 +562,7 @@ class PipelineOrchestrator:
             self._release_gpu()
             self._delete_audio()
             await self._stop_frame_sampling(ctx)
+            await self._stop_burned_detection(ctx)
             self._persist_usage(ctx)
             self._log_summary(ctx)
             active_pipelines.pop(self.job_id, None)
@@ -529,7 +578,12 @@ class PipelineOrchestrator:
             def call(c) -> str:
                 return f"{c.model} (thinking {c.thinking}{', Flex' if c.flex else ''})"
 
-            logger.info(f"===== Job {ctx.job_id}: {'retranslate' if self.mode == 'translate' else 'full run'} =====")
+            run = {"translate": "retranslate", "sync": "sync existing subtitles"}.get(self.mode, "full run")
+            logger.info(f"===== Job {ctx.job_id}: {run} =====")
+            if self.mode == "sync":
+                logger.info(f"Subtitle file: {ctx.sync_file_name} | {len(ctx.sync_cues or [])} lines | "
+                            f"language {ctx.sync_language} | Gemini matching {ctx.sync_use_gemini} | "
+                            f"burned-in detection {settings.sync_detect_burned_in}")
             logger.info(f"File: {ctx.file_name} | duration {ctx.duration:.1f}s | path {ctx.video_path}")
             logger.info(
                 f"Transcription: Whisper {ctx.whisper_model}, source language {ctx.source_language}, "
@@ -602,7 +656,7 @@ class PipelineOrchestrator:
                 "eta_seconds": eta,
                 "message": msg,
             }
-            if isinstance(extra, RawSegment):
+            if isinstance(extra, RawSegment) and self.mode != "sync":
                 payload["event"] = "SEGMENT_CREATED"
                 payload["segment"] = {
                     "job_id": self.job_id,

@@ -62,9 +62,35 @@ class JobConfig(BaseModel):
     glossary_profile: Optional[str] = None
 
 
+class SyncCue(BaseModel):
+    start: float
+    end: float
+    text: str
+    position: str = "bottom"   # "top" = placed at the top of the picture (signs, titles)
+    kind: str = "speech"       # "sound" = hearing-impaired description, nothing is spoken
+
+
+class ParsedSubtitlesResponse(BaseModel):
+    file_name: str
+    format: str
+    encoding: str
+    language: str
+    cue_count: int
+    first_start: float
+    last_end: float
+    top_count: int = 0
+    sound_count: int = 0
+    cues: List[SyncCue]
+
+
 class JobCreate(JobConfig):
     video_path: str
     file_name: Optional[str] = None
+    # "Sync existing subtitles": the parsed file (POST /api/media/parse-subtitles) instead of transcribing
+    sync_cues: Optional[List[SyncCue]] = None
+    sync_file_name: Optional[str] = None
+    sync_language: Optional[str] = None
+    sync_use_gemini: bool = True
 
 
 class RetranslateRequest(BaseModel):
@@ -199,6 +225,9 @@ class JobResponse(BaseModel):
     usage: Optional[Dict[str, Any]] = None
     segment_count: int = 0
     failed_translation_count: int = 0
+    job_kind: str = "transcribe"
+    sync_file_name: Optional[str] = None
+    sync_report: Optional[Dict[str, Any]] = None
     segments: List[SubtitleSegmentSchema] = []
     created_at: datetime
     updated_at: datetime

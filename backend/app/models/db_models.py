@@ -13,6 +13,7 @@ class JobStatus(str, Enum):
     SCANNING_ONSCREEN = "SCANNING_ONSCREEN"
     REFINING = "REFINING"
     TRANSLATING = "TRANSLATING"
+    SYNCING = "SYNCING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -83,6 +84,11 @@ class Job(SQLModel, table=True):
     glossary_profile: Optional[str] = None  # Series glossary profile this job shares with other episodes
     glossary_json: Optional[str] = None  # Character/terminology glossary produced before translating
     usage_json: Optional[str] = None  # Gemini tokens and cost per stage (accumulates across runs)
+    # "transcribe" (subtitles made from the audio) or "sync" (the user's own subtitle file re-timed)
+    job_kind: str = Field(default="transcribe")
+    sync_file_name: Optional[str] = None
+    sync_source_json: Optional[str] = None  # the uploaded cues (with their original times) and options
+    sync_report_json: Optional[str] = None  # how the sync went (methods, offset, frame rate, cuts)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

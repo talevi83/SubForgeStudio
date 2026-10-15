@@ -8,6 +8,8 @@ import { Header } from './components/layout/Header';
 import { MediaDropzone } from './components/ingest/MediaDropzone';
 import { StreamSelector } from './components/ingest/StreamSelector';
 import { PipelineConfig } from './components/ingest/PipelineConfig';
+import { ModeSwitch } from './components/ingest/ModeSwitch';
+import { SubtitleFilePicker } from './components/ingest/SubtitleFilePicker';
 import { LivePipelineBar } from './components/monitor/LivePipelineBar';
 import { VideoSyncPlayer } from './components/studio/VideoSyncPlayer';
 import { SubtitleTable } from './components/studio/SubtitleTable';
@@ -32,6 +34,7 @@ const ErrorToast: React.FC = () => {
 export const App: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
   const view = useUiStore((s) => s.view);
+  const syncing = useJobStore((s) => s.ingestMode === 'sync');
   const language = useUiStore((s) => s.language);
   const theme = useUiStore((s) => s.theme);
   const loadSettings = useSettingsStore((s) => s.load);
@@ -77,7 +80,9 @@ export const App: React.FC = () => {
                 <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{t('app.ingestTitle')}</h1>
                 <p className="text-xs text-zinc-400">{t('app.ingestSubtitle')}</p>
               </div>
+              <ModeSwitch />
               <MediaDropzone />
+              {syncing && <SubtitleFilePicker />}
               <StreamSelector />
               <PipelineConfig />
             </div>
