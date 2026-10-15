@@ -25,7 +25,8 @@ token at 50% of the Standard price. Requests may take minutes and can be shed (4
 is busy; see app/providers/gemini_calls.py for the retry + Standard fallback.
 
 Each model lists the pipeline tasks it is suitable for:
-  translation - subtitle translation (needs strong multilingual quality + structured JSON)
+  translation - subtitle translation (structured JSON; Flash-Lite models are offered as cheaper,
+                lower-quality choices)
   glossary    - one-shot names/terms extraction from the transcript (structured JSON)
   vision      - reading on-screen text from video frames (image input, many cheap requests)
 
@@ -130,10 +131,15 @@ CATALOG: Dict[str, ModelInfo] = {m.id: m for m in [
               (_P(2.00, 12.00, input_long=4.00, output_long=18.00),),
               ("low", "medium", "high"), "high", tasks=(_TR,), preview=True),
     ModelInfo("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "3",
-              (_P(0.30, 2.50),), ("minimal", "low", "medium", "high"), "minimal", tasks=(_GL, _VI)),
+              (_P(0.30, 2.50),), ("minimal", "low", "medium", "high"), "minimal", tasks=(_TR, _GL, _VI),
+              note="Budget translation: a bit over half the cost of Flash (under a third from January 2027). "
+                   "Fine for plain dialogue; Hebrew gender agreement and idioms are weaker - check the result."),
     ModelInfo("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "3",
-              (_P(0.25, 1.50),), (), "minimal", tasks=(_GL, _VI),
-              note="Cheapest option. Thinking levels are not documented for this model; it runs with its default."),
+              (_P(0.25, 1.50),), (), "minimal", tasks=(_TR, _GL, _VI),
+              note="Cheapest option: under a third of Flash for translation (about a sixth from January 2027). "
+                   "Lowest translation quality - best "
+                   "for drafts or simple dialogue. Thinking levels are not documented for this model; it runs "
+                   "with its default."),
 ]}
 
 # Models this app used to offer (or that Google retired) -> what to use instead
