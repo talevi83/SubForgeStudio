@@ -18,6 +18,7 @@ export const he: Messages = {
     COMPLETED: 'הושלם',
     FAILED: 'נכשל',
     CANCELLED: 'בוטל',
+    SYNCING: 'מסנכרן כתוביות',
   },
   header: {
     setupTitle: 'הגדרת עיבוד וטעינת מדיה',
@@ -42,6 +43,26 @@ export const he: Messages = {
     geminiActive: 'פעיל',
     geminiNoKey: 'אין מפתח (.env)',
     settings: 'הגדרות',
+    syncBadge: 'סנכרון',
+  },
+  mode: {
+    transcribe: 'יצירת כתוביות',
+    transcribeHint: 'תמלול האודיו עם Whisper ותרגום עם Gemini',
+    sync: 'סנכרון כתוביות קיימות',
+    syncHint: 'תזמון מחדש של קובץ כתוביות שכבר יש לך (עברית, אנגלית…) לווידאו הזה',
+  },
+  syncFile: {
+    title: 'קובץ הכתוביות לסנכרון',
+    subtitle: 'SRT, WebVTT או ASS — בכל שפה. הטקסט לא משתנה, רק התזמון.',
+    dropTitle: 'גרור לכאן את קובץ הכתוביות, או לחץ לבחירה',
+    reading: 'קורא כתוביות...',
+    summary: '{name}: {count} שורות, {from} – {to}',
+    encoding: 'קידוד {encoding}',
+    signs: '{count} ממוקמות למעלה (שלטים/כיתובים)',
+    sounds: '{count} תיאורי צלילים',
+    language: 'שפת הקובץ',
+    replace: 'בחר קובץ אחר',
+    failed: 'לא הצלחתי לקרוא את קובץ הכתוביות',
   },
   dropzone: {
     title: 'טעינת קובץ מדיה',
@@ -121,6 +142,21 @@ export const he: Messages = {
     estimateBreakdown: 'פירוט',
     launch: 'התחל עיבוד',
     launching: 'מתחיל...',
+    syncTitle: 'איך מתאימים את השורות',
+    syncSpokenLanguage: 'שפת הדיבור (Whisper)',
+    syncAuto:
+      'תמיד, מקומית: לפי קצב הדיבור (מתקן היסט, קצב פריימים שונה וחיתוכים שונים), לפי ערוץ כתוביות מוטמע ולפי כתוביות צרובות בתמונה.',
+    syncEmbedded: 'נמצא ערוץ כתוביות מוטמע ({name}) — התזמון שלו ישמש.',
+    syncGeminiTitle: 'התאמת שורות לדיבור עם Gemini',
+    syncGeminiDescription:
+      'לקובץ בשפה אחרת מהדיבור (למשל עברית על אודיו באנגלית): Gemini מוצא את המילים שכל שורה מתרגמת, כך שכל שורה נוחתת בדיוק. קובץ בשפת הדיבור מותאם מקומית.',
+    syncGeminiSameLanguage: 'הקובץ בשפת הדיבור: המילים שלו מותאמות לתמלול מקומית, בלי Gemini.',
+    syncNeedsKey: 'אין מפתח API: השורות יסונכרנו לפי קצב הדיבור בלבד.',
+    syncOnscreenTitle: 'תזמון כיתובים ושלטים',
+    syncOnscreenDescription:
+      'סורק את הווידאו לטקסט על המסך (כותרות מקום וזמן, שלטים) עם Gemini Vision, כדי שהשורות האלה יופיעו בדיוק עם הטקסט.',
+    syncNeedFile: 'קודם בחר את קובץ הכתוביות לסנכרון.',
+    launchSync: 'סנכרן כתוביות',
   },
   stages: {
     PROBING: 'בדיקת ערוצים',
@@ -133,6 +169,8 @@ export const he: Messages = {
     translation: 'תרגום',
     onscreen: 'טקסט על המסך (ראייה)',
     foreign: 'כתוביות לדיבור בשפה זרה (ראייה)',
+    SYNCING: 'סנכרון כתוביות',
+    sync: 'התאמת שורות (סנכרון)',
   },
   monitor: {
     queued: 'בתור',
@@ -142,6 +180,19 @@ export const he: Messages = {
     cancel: 'ביטול',
     geminiCost: 'Gemini {cost}',
     geminiCostTitle: 'שימוש בפועל ב־Gemini בפרויקט הזה',
+    syncResult: 'סונכרנו {lines} שורות',
+    syncMethods: {
+      text: '{count} לפי המילים שלהן',
+      gemini: '{count} הותאמו ע"י Gemini',
+      screen: '{count} לפי טקסט על המסך',
+      burned_in: '{count} לפי כתוביות צרובות',
+      embedded: '{count} לפי הערוץ המוטמע',
+      speech: '{count} לפי קצב הדיבור',
+    },
+    syncFrameRate: 'קצב פריימים {value}',
+    syncOffset: 'הוזזו {value} שנ׳',
+    syncCuts: 'חיתוכים: {count}',
+    syncUncertain: '{count} לא ודאיות — ראה "רק בעיות"',
   },
   player: {
     title: 'תצוגת וידאו מסונכרנת',
@@ -239,6 +290,7 @@ export const he: Messages = {
     commsTitle: 'שידור קשר / רדיו',
     foreignBadge: 'שפה זרה',
     foreignTitle: 'דיבור בשפה אחרת — הטקסט מהכתוביות הצרובות או מ־Whisper',
+    onlyProblemsSyncTitle: 'מהירות קריאה גבוהה מדי, או שורות שמוקמו בביטחון נמוך (כדאי לבדוק אותן)',
   },
   cps: {
     good: 'טוב',

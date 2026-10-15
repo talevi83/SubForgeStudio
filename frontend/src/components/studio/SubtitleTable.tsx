@@ -62,20 +62,24 @@ export const SubtitleTable: React.FC = () => {
     return i >= 0 ? segments[i].index : null;
   }, [segments, videoCurrentTime]);
 
-  const problemCount = useMemo(
-    () => segments.filter((s) => s.translation_failed || (s.cps ?? 0) > maxCps).length,
-    [segments, maxCps]
+  // A synced file also flags lines that were placed with low confidence
+  const isSyncJob = activeJob?.job_kind === 'sync';
+  const isProblem = useCallback(
+    (s: SubtitleSegment) =>
+      !!s.translation_failed || (s.cps ?? 0) > maxCps || (isSyncJob && (s.confidence ?? 1) < 0.5),
+    [maxCps, isSyncJob]
   );
+  const problemCount = useMemo(() => segments.filter(isProblem).length, [segments, isProblem]);
 
   const filteredSegments = useMemo(() => {
     let list = segments;
-    if (onlyProblems) list = list.filter((s) => s.translation_failed || (s.cps ?? 0) > maxCps);
+    if (onlyProblems) list = list.filter(isProblem);
     if (!searchTerm.trim()) return list;
     const term = searchTerm.toLowerCase();
     return list.filter(
       (s) => s.original_text.toLowerCase().includes(term) || s.translated_text?.toLowerCase().includes(term)
     );
-  }, [segments, searchTerm, onlyProblems, maxCps]);
+  }, [segments, searchTerm, onlyProblems, isProblem]);
 
   // Moving rows only makes sense in the full, time-ordered list of a finished job
   const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm.trim() && !onlyProblems && !timingBusy;
@@ -248,7 +252,7 @@ export const SubtitleTable: React.FC = () => {
             )}
           </span>
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none" title={t('table.onlyProblemsTitle')}>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none" title={isSyncJob ? t('table.onlyProblemsSyncTitle') : t('table.onlyProblemsTitle')}>
               <input
                 type="checkbox"
                 checked={onlyProblems}

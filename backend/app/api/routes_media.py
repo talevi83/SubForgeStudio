@@ -12,7 +12,7 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.core.housekeeping import uploads_dir
 from app.models.db_models import Job
-from app.models.schemas import ProbeResponse, ProbePathRequest
+from app.models.schemas import ParsedSubtitlesResponse, ProbeResponse, ProbePathRequest
 from app.pipeline.stages.probe_stage import probe_media_file
 
 router = APIRouter(prefix="/api/media", tags=["Media"])
@@ -122,6 +122,18 @@ async def upload_media_file(file: UploadFile = File(...)):
         return await _probe_upload(upload_dest)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Probing uploaded file failed: {exc}")
+
+
+@router.post("/parse-subtitles", response_model=ParsedSubtitlesResponse)
+async def parse_subtitles(file: UploadFile = File(...)):
+    """Read a subtitle file (SRT / WebVTT / ASS) for "sync existing subtitles". Nothing is stored."""
+    from app.utils.subtitle_parser import SubtitleParseError, parse_subtitle_file
+
+    data = await file.read(20 * 1024 * 1024 + 1)
+    try:
+        return parse_subtitle_file(data, _sanitize_filename(file.filename))
+    except SubtitleParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _stream_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024):

@@ -16,6 +16,7 @@ export const en = {
     COMPLETED: 'Completed',
     FAILED: 'Failed',
     CANCELLED: 'Cancelled',
+    SYNCING: 'Syncing subtitles',
   },
   header: {
     setupTitle: 'Pipeline Setup & Media Ingest',
@@ -40,6 +41,26 @@ export const en = {
     geminiActive: 'Active',
     geminiNoKey: 'No key (.env)',
     settings: 'Settings',
+    syncBadge: 'Sync',
+  },
+  mode: {
+    transcribe: 'Create subtitles',
+    transcribeHint: 'Transcribe the audio with Whisper, translate with Gemini',
+    sync: 'Sync my subtitles',
+    syncHint: 'Re-time a subtitle file you already have (Hebrew, English…) to this video',
+  },
+  syncFile: {
+    title: 'Subtitle File to Sync',
+    subtitle: 'SRT, WebVTT or ASS — in any language. The text is never changed, only the timing.',
+    dropTitle: 'Drag & drop the subtitle file here, or click to browse',
+    reading: 'Reading subtitles...',
+    summary: '{name}: {count} lines, {from} – {to}',
+    encoding: 'Encoding {encoding}',
+    signs: '{count} placed at the top (signs/titles)',
+    sounds: '{count} sound descriptions',
+    language: 'Language of the file',
+    replace: 'Choose another file',
+    failed: 'Could not read the subtitle file',
   },
   dropzone: {
     title: 'Media File Ingestion',
@@ -119,6 +140,21 @@ export const en = {
     estimateBreakdown: 'Breakdown',
     launch: 'Launch Subtitling Pipeline',
     launching: 'Starting pipeline...',
+    syncTitle: 'How the lines are matched',
+    syncSpokenLanguage: 'Spoken language (Whisper)',
+    syncAuto:
+      'Always used, locally: the speech rhythm (fixes a delay, a different frame rate and different cuts), an embedded subtitle track and subtitles burned into the picture.',
+    syncEmbedded: 'Embedded subtitle track found ({name}) — its timing will be used.',
+    syncGeminiTitle: 'Match lines to the speech with Gemini',
+    syncGeminiDescription:
+      'For a file in another language than the speech (e.g. Hebrew on English audio): Gemini finds the words each line translates, so every line lands exactly. A file in the spoken language is matched locally.',
+    syncGeminiSameLanguage: 'The file is in the spoken language: its words are matched to the transcript locally, no Gemini needed.',
+    syncNeedsKey: 'No API key: lines will be synced by the speech rhythm only.',
+    syncOnscreenTitle: 'Time titles and signs',
+    syncOnscreenDescription:
+      'Scans the video for on-screen text (place and time titles, signs) with Gemini Vision, so those lines appear exactly with the text.',
+    syncNeedFile: 'Choose the subtitle file to sync first.',
+    launchSync: 'Sync Subtitles',
   },
   stages: {
     PROBING: 'Probe Streams',
@@ -131,6 +167,8 @@ export const en = {
     translation: 'Translation',
     onscreen: 'On-screen text (vision)',
     foreign: 'Foreign-speech subtitles (vision)',
+    SYNCING: 'Sync Subtitles',
+    sync: 'Line matching (sync)',
   },
   monitor: {
     queued: 'Queued',
@@ -140,6 +178,19 @@ export const en = {
     cancel: 'Cancel',
     geminiCost: 'Gemini {cost}',
     geminiCostTitle: 'Actual Gemini usage for this project',
+    syncResult: 'Synced {lines} lines',
+    syncMethods: {
+      text: '{count} by their words',
+      gemini: '{count} matched by Gemini',
+      screen: '{count} with on-screen text',
+      burned_in: '{count} from burned-in subtitles',
+      embedded: '{count} from the embedded track',
+      speech: '{count} by the speech rhythm',
+    },
+    syncFrameRate: 'frame rate {value}',
+    syncOffset: 'moved {value}s',
+    syncCuts: 'cuts: {count}',
+    syncUncertain: '{count} uncertain — see "Only problems"',
   },
   player: {
     title: 'Video Sync Preview',
@@ -237,6 +288,7 @@ export const en = {
     commsTitle: 'Radio / comms transmission',
     foreignBadge: 'FOREIGN',
     foreignTitle: 'Speech in another language — text from the burned-in subtitles or Whisper',
+    onlyProblemsSyncTitle: 'Too fast to read, or placed with low confidence (check these lines)',
   },
   cps: {
     good: 'Good',

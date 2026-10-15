@@ -23,6 +23,7 @@ class EstimateRequest(BaseModel):
     enable_translation: bool = True
     detect_onscreen_text: bool = False
     has_forced_track: bool = False
+    sync_lines: int = 0          # "sync existing subtitles": lines in the file (Gemini line matching)
     # Preview unsaved choices from the Settings screen
     settings: Optional[AppSettings] = None
 
@@ -58,6 +59,7 @@ def estimate(req: EstimateRequest):
         max_frames=settings.onscreen_max_frames,
         vision_batch_size=settings.onscreen_batch_size,
         has_forced_track=req.has_forced_track,
+        sync_lines=req.sync_lines,
     )
 
 

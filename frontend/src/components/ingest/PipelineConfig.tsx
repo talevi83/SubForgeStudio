@@ -6,8 +6,9 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { useT, formatUsd } from '../../i18n';
 import type { MessageKey } from '../../i18n';
 import { useCostEstimate } from '../../hooks/useCostEstimate';
-import { SOURCE_LANGUAGES, TARGET_LANGUAGES } from './languages';
+import { SOURCE_LANGUAGES, TARGET_LANGUAGES, sameLanguage } from './languages';
 import { thinkingLabel, modelLabel } from '../settings/labels';
+import { SyncOptions } from './SyncOptions';
 import { AlertTriangle, Sparkles, Settings, Mic, Key, Play, Loader2, FileText, Coins, Users } from 'lucide-react';
 
 /** Accessible on/off switch with a title and a one-line description. */
@@ -63,6 +64,10 @@ export const PipelineConfig: React.FC = () => {
   const probeResult = useJobStore((s) => s.probeResult);
   const systemInfo = useJobStore((s) => s.systemInfo);
   const isLoading = useJobStore((s) => s.isLoading);
+  const syncing = useJobStore((s) => s.ingestMode === 'sync');
+  const syncFile = useJobStore((s) => s.syncFile);
+  const syncLanguage = useJobStore((s) => s.syncLanguage);
+  const syncUseGemini = useJobStore((s) => s.syncUseGemini);
   const [seriesProfiles, setSeriesProfiles] = useState<string[]>([]);
   useEffect(() => {
     api.listGlossaryProfiles().then(setSeriesProfiles).catch(() => setSeriesProfiles([]));
@@ -85,16 +90,23 @@ export const PipelineConfig: React.FC = () => {
   const translationWithoutKey =
     pipelineConfig.enable_translation && !isGeminiReady && !pipelineConfig.gemini_api_key_override;
 
+  // Syncing a file in another language than the speech asks Gemini to match its lines
+  const syncGeminiLines =
+    syncing && syncFile && syncUseGemini && !sameLanguage(syncLanguage || syncFile.language, pipelineConfig.source_language)
+      ? syncFile.cue_count
+      : 0;
   const estimate = useCostEstimate(
     probeResult
       ? {
           duration_seconds: probeResult.duration,
-          enable_translation: pipelineConfig.enable_translation,
+          enable_translation: syncing ? false : pipelineConfig.enable_translation,
           detect_onscreen_text: pipelineConfig.detect_onscreen_text,
           has_forced_track: !!forcedTrack,
+          sync_lines: syncGeminiLines,
         }
       : null
   );
+  const cannotLaunch = syncing && !syncFile;
 
   if (!probeResult) return null;
 
@@ -165,7 +177,10 @@ export const PipelineConfig: React.FC = () => {
           </div>
         </div>
 
-        {/* Translation */}
+        {/* Translation (or, when syncing a file, how its lines are matched) */}
+        {syncing ? (
+          <SyncOptions />
+        ) : (
         <div className="space-y-4 p-4 rounded-xl bg-sunken border border-line">
           <div className="flex items-center justify-between border-b border-line pb-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
@@ -300,6 +315,7 @@ export const PipelineConfig: React.FC = () => {
             <div className="py-6 text-center text-zinc-500 text-xs">{t('config.translationDisabled')}</div>
           )}
         </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -312,8 +328,8 @@ export const PipelineConfig: React.FC = () => {
         />
         <FeatureToggle
           icon="📺"
-          title={t('config.onscreenTitle')}
-          description={t('config.onscreenDescription')}
+          title={syncing ? t('config.syncOnscreenTitle') : t('config.onscreenTitle')}
+          description={syncing ? t('config.syncOnscreenDescription') : t('config.onscreenDescription')}
           checked={pipelineConfig.detect_onscreen_text}
           onChange={(v) => updatePipelineConfig({ detect_onscreen_text: v })}
           note={
@@ -359,10 +375,12 @@ export const PipelineConfig: React.FC = () => {
         </div>
       )}
 
-      <div className="pt-2">
+      <div className="pt-2 space-y-2">
+        {cannotLaunch && <p className="text-center text-[11px] text-amber-300">{t('config.syncNeedFile')}</p>}
         <button
           onClick={createAndStartJob}
-          disabled={isLoading}
+          disabled={isLoading || cannotLaunch}
+          data-testid="launch"
           className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-60 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
         >
           {isLoading ? (
@@ -373,7 +391,7 @@ export const PipelineConfig: React.FC = () => {
           ) : (
             <>
               <Play className="w-4 h-4 fill-white" />
-              {t('config.launch')}
+              {syncing ? t('config.launchSync') : t('config.launch')}
             </>
           )}
         </button>

@@ -153,6 +153,11 @@ export const Sidebar: React.FC = () => {
                     )}
                   </div>
                   <span className="text-zinc-400 text-[10px] whitespace-nowrap">
+                    {job.job_kind === 'sync' && (
+                      <span className="me-1.5 px-1 rounded bg-indigo-500/15 text-indigo-300" data-testid="sync-badge">
+                        {t('sidebar.syncBadge')}
+                      </span>
+                    )}
                     {t('sidebar.subs', { count: job.segment_count || 0 })}
                     {cost ? ` · ${formatUsd(cost, language)}` : ''}
                   </span>

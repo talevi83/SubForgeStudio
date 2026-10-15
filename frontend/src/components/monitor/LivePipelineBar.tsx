@@ -19,7 +19,10 @@ import {
   Hourglass,
   ScanText,
   Coins,
+  TimerReset,
+  CheckCircle2,
 } from 'lucide-react';
+import type { SyncReport } from '../../types';
 
 const ALL_STAGES = [
   { key: 'PROBING', icon: Search },
@@ -28,6 +31,7 @@ const ALL_STAGES = [
   { key: 'SCANNING_ONSCREEN', icon: ScanText },
   { key: 'REFINING', icon: Sliders },
   { key: 'TRANSLATING', icon: Languages },
+  { key: 'SYNCING', icon: TimerReset },
 ];
 
 const formatEta = (seconds?: number | null) => {
@@ -56,9 +60,12 @@ export const LivePipelineBar: React.FC = () => {
 
   // A translation-only run (Retranslate) shows just the translate step
   const translateOnly = status === 'TRANSLATING' && activeJob.segments.some((s) => s.id);
+  const isSync = activeJob.job_kind === 'sync';
   const stages = ALL_STAGES.filter(
     (s) =>
-      (s.key !== 'TRANSLATING' || activeJob.enable_translation || status === 'TRANSLATING') &&
+      (isSync
+        ? s.key !== 'REFINING' && s.key !== 'TRANSLATING'
+        : s.key !== 'SYNCING' && (s.key !== 'TRANSLATING' || activeJob.enable_translation || status === 'TRANSLATING')) &&
       (s.key !== 'SCANNING_ONSCREEN' || activeJob.detect_onscreen_text)
   );
   const order = stages.map((s) => s.key);
@@ -183,12 +190,44 @@ export const LivePipelineBar: React.FC = () => {
           <span className="break-all">{activeJob.error_message}</span>
         </div>
       )}
+      {isSync && isCompleted && activeJob.sync_report && <SyncSummary report={activeJob.sync_report} />}
+
       {!isRunning && activeJob.warning_message && (
         <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{activeJob.warning_message}</span>
         </div>
       )}
+    </div>
+  );
+};
+
+/** How a finished sync placed the lines (methods, frame rate, delay, cuts). */
+const SyncSummary: React.FC<{ report: SyncReport }> = ({ report }) => {
+  const t = useT();
+  const methods = report.methods || {};
+  const order = ['text', 'gemini', 'screen', 'burned_in', 'embedded', 'speech'] as const;
+  const parts = order
+    .filter((m) => (methods[m] || 0) > 0)
+    .map((m) => t(`monitor.syncMethods.${m}` as MessageKey, { count: methods[m] || 0 }));
+  const extras: string[] = [];
+  if (report.frame_rate && report.frame_rate !== 'same frame rate') extras.push(t('monitor.syncFrameRate', { value: report.frame_rate.replace('->', '→') }));
+  if (typeof report.offset === 'number' && Math.abs(report.offset) >= 0.05)
+    extras.push(t('monitor.syncOffset', { value: `${report.offset > 0 ? '+' : ''}${report.offset.toFixed(1)}` }));
+  if (report.jump_count) extras.push(t('monitor.syncCuts', { count: report.jump_count }));
+  const uncertain = methods.low_confidence || 0;
+  return (
+    <div
+      className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-start gap-2"
+      data-testid="sync-summary"
+    >
+      <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      <span>
+        <span className="font-semibold">{t('monitor.syncResult', { lines: report.lines || 0 })}</span>
+        {parts.length > 0 && <>: {parts.join(' · ')}</>}
+        {extras.length > 0 && <span className="text-emerald-300/70" dir="auto"> ({extras.join(', ')})</span>}
+        {uncertain > 0 && <span className="text-amber-300"> — {t('monitor.syncUncertain', { count: uncertain })}</span>}
+      </span>
     </div>
   );
 };

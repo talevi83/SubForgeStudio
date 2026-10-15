@@ -7,6 +7,7 @@ export type JobStatus =
   | 'SCANNING_ONSCREEN'
   | 'REFINING'
   | 'TRANSLATING'
+  | 'SYNCING'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
@@ -20,6 +21,7 @@ export const ACTIVE_STATUSES: JobStatus[] = [
   'SCANNING_ONSCREEN',
   'REFINING',
   'TRANSLATING',
+  'SYNCING',
 ];
 
 export const isActiveStatus = (status?: JobStatus | null) =>
@@ -126,6 +128,10 @@ export interface Job {
   usage?: JobUsage | null;
   segment_count: number;
   failed_translation_count: number;
+  /** 'sync' = the user's own subtitle file re-timed to the video */
+  job_kind?: 'transcribe' | 'sync';
+  sync_file_name?: string | null;
+  sync_report?: SyncReport | null;
   segments: SubtitleSegment[];
   created_at: string;
   updated_at: string;
@@ -170,6 +176,47 @@ export interface SystemInfo {
   max_cps_warning: number;
   hardware: HardwareInfo;
 }
+
+/** One line of a subtitle file the user wants synced (as parsed by the server). */
+export interface SyncCue {
+  start: number;
+  end: number;
+  text: string;
+  /** 'top' = placed at the top of the picture in the file (signs, titles) */
+  position: 'top' | 'bottom';
+  /** 'sound' = a hearing-impaired description such as [door slams] */
+  kind: 'speech' | 'sound';
+}
+
+export interface ParsedSubtitles {
+  file_name: string;
+  format: string;
+  encoding: string;
+  language: string;
+  cue_count: number;
+  first_start: number;
+  last_end: number;
+  top_count: number;
+  sound_count: number;
+  cues: SyncCue[];
+}
+
+export type SyncMethod = 'text' | 'gemini' | 'screen' | 'burned_in' | 'embedded' | 'speech';
+
+export interface SyncReport {
+  file_name?: string;
+  language?: string;
+  spoken_language?: string;
+  lines?: number;
+  matching?: string;
+  frame_rate?: string;
+  offset?: number;
+  jump_count?: number;
+  reference?: { source: 'embedded' | 'burned_in' | null; detail?: string };
+  methods?: Partial<Record<SyncMethod | 'low_confidence', number>>;
+}
+
+export type IngestMode = 'transcribe' | 'sync';
 
 export interface JobConfig {
   selected_audio_stream: number;

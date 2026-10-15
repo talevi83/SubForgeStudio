@@ -76,6 +76,15 @@ class PipelineContext:
     refined_segments: List[Dict[str, Any]] = field(default_factory=list)
     translated_segments: List[Dict[str, Any]] = field(default_factory=list)
     translation_warning: Optional[str] = None
+    # "Sync existing subtitles" jobs: the user's cues ([{start, end, text, position, kind}]),
+    # their language, whether Gemini may match lines to the speech, and the result summary
+    sync_cues: Optional[List[Dict[str, Any]]] = None
+    sync_file_name: Optional[str] = None
+    sync_language: Optional[str] = None
+    sync_use_gemini: bool = True
+    sync_report: Optional[Dict[str, Any]] = None
+    # Background burned-in subtitle detection (started right after audio extraction)
+    burned_task: Optional[Any] = None
     # Thread-safe flag so worker threads (Whisper) can observe cancellation
     cancel_flag: threading.Event = field(default_factory=threading.Event)
 

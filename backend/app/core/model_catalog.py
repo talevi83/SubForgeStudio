@@ -415,6 +415,12 @@ def _stage_estimate(model: str, thinking: str, requests: int, input_per: int, ou
     }
 
 
+_SYNC_BATCH = 40
+_SYNC_PROMPT = 450
+_SYNC_TOKENS_PER_LINE_IN = 75    # the line itself + about two transcript phrases with times
+_SYNC_TOKENS_PER_LINE_OUT = 22
+
+
 def estimate_job_cost(
     duration_seconds: float,
     enable_translation: bool,
@@ -427,6 +433,7 @@ def estimate_job_cost(
     max_frames: int = 360,
     vision_batch_size: int = 12,
     has_forced_track: bool = False,
+    sync_lines: int = 0,
 ) -> Dict[str, Any]:
     minutes = max(0.0, duration_seconds) / 60
     segments = max(1, round(minutes * SEGMENTS_PER_MINUTE))
@@ -466,6 +473,15 @@ def estimate_job_cost(
                 v.model, v.thinking, ceil(crops / vision_batch_size), vision_batch_size * img + _VISION_PROMPT, _VISION_OUTPUT,
                 flex=getattr(v, "flex", False))
             stages["foreign"]["frames"] = crops
+
+    if sync_lines:
+        # Gemini matches a translated subtitle file to the transcript: 40 lines per request,
+        # with the transcript phrases around them (see pipeline/sync_text.py)
+        t = app_settings.translation
+        batches = ceil(sync_lines / _SYNC_BATCH)
+        stages["sync"] = _stage_estimate(
+            t.model, t.thinking, batches, _SYNC_PROMPT + _SYNC_BATCH * _SYNC_TOKENS_PER_LINE_IN,
+            _SYNC_BATCH * _SYNC_TOKENS_PER_LINE_OUT, flex=getattr(t, "flex", False))
 
     costs = [s["cost_usd"] for s in stages.values()]
     return {
