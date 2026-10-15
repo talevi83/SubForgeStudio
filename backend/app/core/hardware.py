@@ -12,9 +12,11 @@ def setup_cuda_dll_paths() -> None:
         return
 
     import ctypes
-    site_packages = Path(sys.prefix) / "Lib" / "site-packages"
-    nvidia_dir = site_packages / "nvidia"
-    if not nvidia_dir.exists():
+    candidates = [Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"]
+    if getattr(sys, "frozen", False):  # packaged exe: the DLLs sit in <bundle>/nvidia/*/bin
+        candidates.insert(0, Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "nvidia")
+    nvidia_dir = next((c for c in candidates if c.exists()), None)
+    if nvidia_dir is None:
         return
 
     bin_dirs = list(nvidia_dir.glob("*/bin"))

@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -87,7 +88,9 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str):
 
 
 # If production frontend build exists, serve it; otherwise provide API root
-frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+# The desktop launcher (packaged exe) points this at its bundled copy
+frontend_dist = Path(os.environ.get("SUBFORGE_FRONTEND_DIST")
+                     or Path(__file__).resolve().parent.parent.parent / "frontend" / "dist")
 if frontend_dist.is_dir():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
 else:

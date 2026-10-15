@@ -11,16 +11,21 @@ venv/
 *.egg-info/
 .pytest_cache/
 
-*.env
-
 # Node
 node_modules/
 frontend/node_modules/
 frontend/dist/
 .npm
 
-# Environment & Storage
+# Environment & secrets (API keys) - only the template is tracked
+.env
+.env.*
+*.env
+!.env.example
 backend/.env
+data/
+
+# Storage
 storage/
 *.db
 *.sqlite
@@ -35,3 +40,10 @@ Thumbs.db
 
 # Scratch folder for files queued for manual deletion
 _to_delete/
+
+# EXE build output
+/build/
+/dist/
+*.exe
+packaging/ffmpeg/
+launcher.log

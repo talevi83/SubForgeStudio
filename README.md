@@ -63,6 +63,7 @@ Open **Settings** (bottom of the sidebar):
   - Thinking uses `thinking_level` (minimal / low / medium / high, as supported by each model). "Model default" sends nothing.
   - **Flex mode** (per step): sends requests with `service_tier="flex"` at 50% of the Standard price. Google answers Flex when it has spare capacity, so a request can take minutes; busy (429/503) requests are retried with backoff and then sent once on the Standard tier, and the job warns how many requests fell back. Translation runs batch by batch, so Flex can make long episodes much slower.
   - Gemini 3+ models keep their default temperature, as Google recommends.
+  - **Test models** sends a tiny request to each chosen model (an image for the vision step, over Flex when Flex is on) to confirm your API key can use it. The API is `POST /api/settings/check`.
 - **Missed-speech recovery** (on by default, `WHISPER_GAP_RECOVERY=false` to disable): the voice detector (Silero VAD) misses speech under gunfire, engines, music and radio filtering, so Whisper never hears it. After transcription, Whisper re-listens *without* VAD to every stretch no subtitle covers and keeps only lines that pass strict hallucination checks; each kept/rejected line is listed in the project log. Shouted commands ("Fire!", "Go, go, go!", "Cease fire!") are judged by their own words rather than the noisy window's confidence, and repeats of a neighbouring command are kept.
 - **Subtitle start alignment** (on by default, `WHISPER_SNAP_STARTS=false` to disable): Whisper's word timestamps ignore silence, so a word that follows a pause is stamped right after the previous word and the subtitle can appear a second or two before anyone speaks. After transcription, Silero VAD finds where speech really begins and any word that spans a silent gap (0.4s or longer) is moved to just before the speech that follows it (starts are only ever moved later, and speech the detector misses is left as Whisper timed it). The job log shows how many word starts were moved.
 - **Re-check timing (finished jobs)**: the *Re-check timing* button above the table re-extracts the audio, runs voice-activity detection over the whole video and moves every subtitle that starts in a silence shortly before speech to just before that speech (text and on-screen cues are never touched; there is an *Undo* right after). Results are cached in `storage/regions`. The API is `POST /api/jobs/{id}/retime`.
@@ -84,41 +85,81 @@ Prices come from the official Gemini API paid tier (checked October 2026, includ
 
 ## 🏗️ Repository Architecture
 
+Pipeline per job: **Probe → Audio → Transcribe → On-screen text** *(optional)* **→ Refine → Translate**, with live progress and segments pushed over a WebSocket (`/ws/jobs/{job_id}`).
+
 ```text
-subforge-studio/
-├── SPEC.md                     # Master Technical Specification
+SubsForge Studio/
+├── SPEC.md                     # Master technical specification
 ├── README.md                   # Setup and usage guide
+├── run.bat                     # One-click Windows launcher (venv, .env, frontend build, server)
+├── build_exe.bat               # Builds the standalone desktop app (dist\SubForge Studio\)
+├── packaging/                  # Tray launcher, PyInstaller spec, icon, FFmpeg download script
 ├── backend/
-│   ├── .env                    # Local configuration (API keys, ports)
-│   ├── .env.example            # Configuration template
-│   ├── requirements.txt        # Python backend dependencies
+│   ├── .env.example            # Configuration template (copy to .env)
+│   ├── requirements.txt        # Python dependencies (incl. CUDA cuBLAS/cuDNN wheels)
 │   ├── app/
-│   │   ├── main.py             # FastAPI entrypoint, CORS, static mounting
-│   │   ├── core/               # Settings, SQLite database, hardware detection, WS manager
-│   │   ├── models/             # SQLModel database models & Pydantic schemas
-│   │   ├── pipeline/           # Orchestrator & stages (Probe, Audio, Transcribe, Refine, Translate)
-│   │   ├── providers/          # Transcription (faster-whisper) & Translation (Gemini, Noop)
-│   │   ├── utils/              # SRT/VTT formatter & RTL BiDi fixer
-│   │   └── api/                # Media, Jobs, Export, and System API routes
-│   └── tests/                  # Automated pytest test suites (100% pass)
-└── frontend/
-    ├── package.json
-    ├── vite.config.ts          # Vite build & backend reverse proxy
-    └── src/
-        ├── types/              # TypeScript data contracts
-        ├── services/           # Typed REST API client
-        ├── store/              # Zustand global store & WebSocket listener
-        └── components/         # Ingest, Live Monitor, and Studio Workspace UI
+│   │   ├── main.py             # FastAPI app: CORS, trusted hosts, routers, WebSocket, serves frontend/dist
+│   │   ├── api/                # Routes: system, media, jobs, export, settings, glossary profiles, storage
+│   │   ├── core/               # Config, SQLite DB, hardware detection, WS manager, model catalog & prices,
+│   │   │                       #   user settings, glossary profiles, job logging, housekeeping, storage cleanup
+│   │   ├── models/             # SQLModel tables & Pydantic schemas
+│   │   ├── pipeline/
+│   │   │   ├── orchestrator.py # Runs the stages: GPU queue, cancel, save-as-you-go, recovery after restart
+│   │   │   ├── stages/         # probe, audio, transcribe, ocr (on-screen text), refine, translate
+│   │   │   ├── gap_recovery.py # Missed-speech recovery (Whisper without VAD over uncovered audio)
+│   │   │   ├── word_snap.py    # Subtitle start alignment
+│   │   │   ├── speech_regions.py, retime.py   # Speech maps, "Re-check timing" and drag-to-reorder
+│   │   │   ├── foreign_speech.py              # Passages in other languages
+│   │   │   ├── speaker_detect.py, qa.py       # Gender detection from frames, quality check
+│   │   │   └── context.py                     # Job context passed between stages
+│   │   ├── providers/          # faster-whisper transcription; Gemini (+ Flex wrapper) and Noop translation
+│   │   └── utils/              # SRT/VTT formatter, RTL fixer, language list, text rules
+│   └── tests/                  # pytest suites
+├── frontend/                   # React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand
+│   ├── vite.config.ts          # Build & dev proxy to the backend
+│   └── src/
+│       ├── components/         # ingest/, monitor/, studio/, settings/, layout/
+│       ├── store/              # Zustand stores (jobs + WebSocket listener, settings, UI)
+│       ├── services/api.ts     # Typed REST client
+│       ├── hooks/              # Cost estimate
+│       ├── i18n/               # English & Hebrew UI strings
+│       └── types/              # TypeScript data contracts
+└── storage/                    # Created at runtime, git-ignored
+    ├── subforge.db             # Projects and subtitles (SQLite)
+    ├── settings.json           # Choices from the Settings screen
+    ├── uploads/                # Browser-uploaded video copies
+    ├── audio/, frames/         # Temporary audio and sampled frames
+    ├── exports/                # Exported subtitle files
+    ├── regions/                # Speech-map cache for "Re-check timing"
+    ├── glossaries/             # Series glossary profiles
+    └── logs/                   # server.log + jobs/<job>.log
 ```
+
+### API at a glance
+
+Interactive docs are at `http://localhost:8000/docs` while the server runs.
+
+| Area | Endpoints |
+|---|---|
+| System | `GET /api/system/info` (hardware, models), `GET /api/system/log` (server log) |
+| Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range) |
+| Jobs | `POST/GET /api/jobs`, `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
+| Editing | `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
+| Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
+| Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
+| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check` |
+| Storage | `GET /api/storage`, `POST /api/storage/clean` |
+| Live | `WS /ws/jobs/{job_id}` |
 
 ---
 
 ## 🚀 Quickstart Guide
 
 ### 1. Prerequisites
-- **Python 3.11+**
-- **Node.js 18+** & npm
+- **Python 3.11+** (`run.bat` uses 3.12)
+- **Node.js 20.19+ or 22.12+** & npm (required by Vite 8)
 - **FFmpeg & FFprobe** installed and accessible on PATH
+- **Optional:** an NVIDIA GPU for fast transcription. The CUDA cuBLAS/cuDNN runtime comes from `requirements.txt`, so no separate CUDA install is needed; without a GPU Whisper runs on the CPU (INT8).
 
 ### 2. Backend Setup
 ```bash
@@ -140,23 +181,33 @@ cp .env.example .env
 Edit `backend/.env` to configure your Google Gemini API key:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
 WHISPER_DEFAULT_MODEL=medium
 WHISPER_DEVICE=auto
 ```
+
+`GEMINI_MODEL` / `GEMINI_VISION_MODEL` are only the first-run defaults: after that, models and thinking levels are chosen in **Settings** (saved to `storage/settings.json`).
 
 Optional settings (defaults shown):
 
 | Setting | Default | What it does |
 |---|---|---|
+| `WHISPER_DEVICE` / `WHISPER_COMPUTE_TYPE` | `auto` / `auto` | `cuda` or `cpu`; `float16` or `int8`. `auto` picks CUDA FP16 when a GPU is found, otherwise CPU INT8. |
 | `WHISPER_BATCH_SIZE` | `8` | Batched GPU inference. Lower if you run out of VRAM; `0` = sequential. |
-| `GEMINI_GLOSSARY_PASS` | `true` | Build a character/terminology glossary before translating. |
-| `TARGET_CPS` | `17` | Reading speed the timing pass aims for. |
-| `MIN_SUBTITLE_DURATION` / `MAX_SUBTITLE_DURATION` | `1.0` / `7.0` | Display time limits (seconds). |
-| `GEMINI_VISION_MODEL` | `gemini-2.5-flash` | Model that reads on-screen text from frames. |
-| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `360` | Frame sampling interval (s) and the most frames sent to Gemini per job. |
+| `WHISPER_GAP_RECOVERY` | `true` | Missed-speech recovery (see Settings above). |
+| `WHISPER_SNAP_STARTS` | `true` | Subtitle start alignment (see Settings above). |
 | `MAX_CONCURRENT_TRANSCRIPTIONS` | `1` | Jobs allowed on the GPU at once (others wait as *Queued*). |
+| `GEMINI_BATCH_SIZE` | `30` | Subtitle lines per translation request. |
+| `GEMINI_GLOSSARY_PASS` | `true` | Build a character/terminology glossary before translating. |
+| `GEMINI_VISION_MODEL` | `gemini-3.5-flash-lite` | Initial model that reads on-screen text from frames. |
+| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `360` | Frame sampling interval (s) and the most frames sent to Gemini per job. |
+| `ONSCREEN_BATCH_SIZE` | `12` | Frames per Gemini Vision request. |
+| `MAX_CHARS_PER_LINE` | `42` | Line length limit for refinement and export. |
+| `TARGET_CPS` / `MAX_CPS_WARNING` | `17` / `20` | Reading speed the timing pass aims for / when the editor flags a line. |
+| `MIN_SUBTITLE_DURATION` / `MAX_SUBTITLE_DURATION` | `1.0` / `7.0` | Display time limits (seconds). |
 | `UPLOAD_RETENTION_HOURS` | `24` | Unused browser uploads older than this are removed at startup. |
+| `STORAGE_DIR` / `DATABASE_URL` | `./storage` / `sqlite:///./storage/subforge.db` | Where data and the database live. |
+| `HOST` / `PORT` | `127.0.0.1` / `8000` | Server address. Keep `127.0.0.1` unless you really want LAN access: the API can read any file path on this PC. |
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
 
 An API key typed into the UI is used for that run only and is never written to disk.
@@ -184,8 +235,9 @@ Double-click `run.bat`. It creates the virtual environment if needed, rebuilds t
 Run the backend server, which automatically serves the compiled frontend on port 8000:
 ```bash
 # From workspace root or backend directory:
-backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
+Use `--host 0.0.0.0` only for LAN access, together with `ALLOWED_HOSTS` (see the table above).
 Open your browser at: **`http://localhost:8000`**
 
 ### Option C: Development Mode (Hot Reloading)
@@ -201,6 +253,32 @@ cd frontend
 npm run dev
 ```
 Open your browser at: **`http://localhost:5173`** (API requests & WebSockets proxy to `:8000`).
+
+---
+
+## 📦 Desktop App (Standalone EXE)
+
+`build_exe.bat` turns the project into a standalone Windows program: a folder with **`SubForge Studio.exe`** that includes Python, every library, the built frontend, FFmpeg and the NVIDIA CUDA runtime. The target PC needs no Python, Node or FFmpeg (only an NVIDIA driver for GPU transcription).
+
+### Build
+Requires the same tools as the Quickstart (Python or `uv`, Node.js). Double-click **`build_exe.bat`**. It:
+1. installs the backend and build dependencies (`packaging/requirements-build.txt`: PyInstaller, pystray, Pillow) into `backend\.venv`;
+2. builds the frontend;
+3. downloads a static FFmpeg build into `packaging\ffmpeg` (once; put your own `ffmpeg.exe` + `ffprobe.exe` there to skip it);
+4. packages everything with PyInstaller (`packaging/subforge.spec`) into **`dist\SubForge Studio\`**;
+5. copies `backend\.env` (your API key) to the app's data folder if that folder has none yet.
+
+The output is about 2-3 GB, mostly the NVIDIA libraries. Copy or move the **whole** `dist\SubForge Studio` folder; the exe needs the `_internal` folder next to it.
+
+### Using it
+- Run `SubForge Studio.exe`: the server starts in the background, an icon appears in the system tray and the studio opens in your browser. Running the exe again while it's open just opens the browser.
+- **Tray menu** (right-click): *Open SubForge Studio* (or just click the icon), *Open data folder*, *Edit settings (.env)*, *Server log*, *Restart server* (after editing `.env`) and *Quit*. Quit and Restart ask first if a project is still running.
+- **Data folder:** the `.env`, projects database, settings and logs live in `%LOCALAPPDATA%\SubForge Studio`, not in the program folder, so rebuilding or replacing the program never touches them. To keep everything next to the exe instead (portable mode), create an empty `data` folder beside `SubForge Studio.exe`; the `SUBFORGE_HOME` environment variable overrides both.
+- Startup errors are shown in a message box. Details are in `launcher.log` and `storage\logs\server.log` in the data folder.
+- Whisper models are downloaded on first use to the usual Hugging Face cache in your user profile, shared with the developer setup.
+- The launcher also runs from source, without building: `backend\.venv\Scripts\python.exe packaging\launcher.py` (add `--no-tray` to run in the console, `--no-browser` to skip opening the browser).
+
+To change the icon, edit and run `packaging/make_icon.py` (it writes `packaging/icon.ico`).
 
 ---
 
@@ -225,3 +303,13 @@ The test suite covers:
 - **`test_comms_onscreen.py`**: timeline merging, OCR de-duplication, frame selection, bracketed RTL titles, forced-track parsing, comms filter/decoding/classification, and two real-ffmpeg end-to-end runs (forced track; frame scan with a fake Gemini Vision).
 - **`test_pipeline_e2e.py`**: the whole pipeline on a generated clip through real ffmpeg (Whisper faked).
 - **`test_api_and_pipeline.py`** / **`test_stage1_fixes.py`**: system info, persistence, exports, recovery, cancel guards.
+- **`test_flex.py`**: Flex pricing, settings, the retry/fallback wrapper and how callers use it.
+- **`test_gap_recovery.py`**: recovering speech the voice detector skipped, hallucination checks, shouted commands.
+- **`test_word_snap.py`**: word starts inside a pause moved to the speech onset.
+- **`test_retime.py`**: "Re-check timing" rules and drag-to-move rows.
+- **`test_row_translate.py`**: re-translating selected rows with speaker/addressee hints, editing the glossary.
+- **`test_glossary_profiles.py`**: series glossary profiles saved, reused and extended across episodes.
+- **`test_speaker_detect.py`**: frame selection and gender detection from video.
+- **`test_qa.py`**: quality check (untranslated words, glossary mismatches, pronoun/verb agreement).
+- **`test_storage_cleanup.py`**: storage report and cleanup never touch active jobs, your own videos or the live server log.
+- **`test_logs.py`**: per-job log capture (including worker threads) and log export.

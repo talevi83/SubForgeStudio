@@ -1,0 +1,4 @@
+# Extra packages for building / running the desktop launcher (on top of backend/requirements.txt)
+pyinstaller>=6.10
+pystray>=0.19.5
+pillow>=10.0
