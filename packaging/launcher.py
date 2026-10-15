@@ -109,7 +109,8 @@ def redirect_stdio(home: Path) -> None:
 
 def hide_child_consoles() -> None:
     """Without this every ffmpeg/ffprobe/nvidia-smi call would flash a black console window."""
-    if not (WINDOWS and FROZEN):
+    # pythonw.exe (run.bat) has no console either
+    if not (WINDOWS and (FROZEN or Path(sys.executable).name.lower() == "pythonw.exe")):
         return
     create_no_window = 0x08000000
     original_init = subprocess.Popen.__init__
@@ -513,9 +514,25 @@ def main() -> int:
     browse_host = "localhost" if host in ("0.0.0.0", "127.0.0.1", "::", "[::]") else host
     url = f"http://{browse_host}:{port}"
 
-    if is_our_server(url):  # already running: bring up its window (or the browser)
-        if not show_running_window(url) and not args.no_browser:
-            webbrowser.open(url)
+    if is_our_server(url):  # already running: bring up its window
+        if show_running_window(url):
+            return 0
+        # A copy is running but has no window to show: it runs in the browser, in a console
+        # (the old run.bat), or it is an older version. Say so instead of silently opening a tab.
+        print(f"{APP_NAME} is already running at {url} without a window.", file=sys.stderr, flush=True)
+        if args.no_browser:
+            return 0
+        if not use_browser and not args.no_tray:
+            answer = message(
+                f"{APP_NAME} is already running without its own window (in the browser, in a console "
+                "window, or as an older version).\n\n"
+                "Close that copy first - quit it from its tray icon, or close its black console window - "
+                "then start the program again to get the app window.\n\n"
+                "Yes - open the running copy in the browser now\n"
+                "No - do nothing", "yesno")
+            if answer != IDYES:
+                return 0
+        webbrowser.open(url)
         return 0
     if port_busy(port):
         message(f"Port {port} is already used by another program.\n"

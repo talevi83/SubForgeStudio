@@ -59,7 +59,32 @@ goto :frontend_done
 echo [3/4] Frontend studio build is up to date.
 :frontend_done
 
-:: 4. Start backend and open browser
+:: 4. Make sure the window packages (pywebview, pystray, pillow) are installed
+if /i "%~1"=="--browser" goto :browser_mode
+"%~dp0backend\.venv\Scripts\python.exe" -c "import webview, pystray, PIL" >nul 2>nul
+if errorlevel 1 (
+    echo [4/4] Installing the desktop window packages ^(one time^)...
+    where uv >nul 2>nul
+    if !ERRORLEVEL! equ 0 (
+        uv pip install -r packaging\requirements-desktop.txt --python backend\.venv\Scripts\python.exe
+    ) else (
+        backend\.venv\Scripts\python.exe -m pip install -q --disable-pip-version-check -r packaging\requirements-desktop.txt
+    )
+    "%~dp0backend\.venv\Scripts\python.exe" -c "import webview, pystray, PIL" >nul 2>nul
+    if errorlevel 1 (
+        echo [WARNING] Could not install the window packages - opening in the browser instead.
+        goto :browser_mode
+    )
+)
+
+:: Start SubForge Studio in its own window (no browser, no console). The API key and the
+:: projects stay in backend\ (backend\.env and backend\storage), like in the browser mode.
+echo [4/4] Starting SubForge Studio in its own window...
+set "SUBFORGE_HOME=%~dp0backend"
+start "" "%~dp0backend\.venv\Scripts\pythonw.exe" "%~dp0packaging\launcher.py"
+exit /b 0
+
+:browser_mode
 echo [4/4] Starting SubForge Studio on http://localhost:8000 ...
 echo.
 echo ===================================================
