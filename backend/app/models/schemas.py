@@ -162,6 +162,15 @@ class RetimeRequest(BaseModel):
     end: Optional[float] = None
 
 
+class SegmentCreate(BaseModel):
+    """A subtitle line the user adds by hand (between existing lines)."""
+    start_time: float
+    end_time: float
+    original_text: str = ""
+    translated_text: Optional[str] = None
+    segment_type: str = "DIALOGUE"
+
+
 class MoveSegmentRequest(BaseModel):
     segment_id: int
     to_position: int = Field(description="0-based position in time order to drop the row at")
@@ -171,6 +180,7 @@ class SegmentsChangeResponse(BaseModel):
     changed: int = 0
     retimed: bool = True
     message: Optional[str] = None
+    created_id: Optional[int] = None  # the line POST /segments added
     segments: List["SubtitleSegmentSchema"] = []
 
 

@@ -47,7 +47,8 @@
 
 8. **Interactive Studio Workspace:**
    - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), seek bar and fullscreen that keeps the subtitle overlay.
-   - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `F` fullscreen.
+   - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `N` add a line at the playhead, `F` fullscreen.
+   - **Add a line by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in the same format the table shows, `HH:MM:SS,mmm` (e.g. `00:12:34,500`; short forms like `12:34,5` work too), or taken from the playhead with one click. The dialog shows the lines before and after, the free gap and the duration, and blocks an overlap with a one-click fix (*Start right after it* / *End right before it* / *Fit into the gap*). Lines are renumbered after adding.
    - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
@@ -159,7 +160,7 @@ Interactive docs are at `http://localhost:8000/docs` while the server runs.
 | System | `GET /api/system/info` (hardware, models), `GET /api/system/log` (server log) |
 | Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range), `POST /api/media/parse-subtitles` (read a subtitle file to sync) |
 | Jobs | `POST/GET /api/jobs` (with `sync_cues` = a sync job), `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
-| Editing | `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
+| Editing | `POST /api/jobs/{id}/segments` (add a line), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
 | Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
 | Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
 | Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check` |
@@ -329,4 +330,5 @@ The test suite covers:
 - **`test_qa.py`**: quality check (untranslated words, glossary mismatches, pronoun/verb agreement).
 - **`test_storage_cleanup.py`**: storage report and cleanup never touch active jobs, your own videos or the live server log.
 - **`test_logs.py`**: per-job log capture (including worker threads) and log export.
+- **`test_insert_segment.py`**: adding a line by hand: renumbering, overlap rejection naming the line, invalid times and text, clamping to the video end, running jobs.
 - **`test_sync.py`**: subtitle file parsing (formats, encodings, positions, language), alignment (delay, frame rate, cuts, wrong anchors), word and Gemini matching (fake client), burned-in detection, and sync jobs end to end through the API (same language, Hebrew with Gemini, burned-in subtitles).

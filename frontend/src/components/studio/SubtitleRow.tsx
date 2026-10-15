@@ -20,6 +20,8 @@ interface SubtitleRowProps {
   /** Row selection (for re-translating a few rows); omitted while the job is running */
   checked?: boolean;
   onCheck?: (segmentId: number, shift: boolean) => void;
+  /** "+" under the row number: add a line right after this one; omitted while the job runs */
+  onInsertAfter?: (seg: SubtitleSegment) => void;
   /** Drag-to-move support; omitted while the table is filtered or still being generated. */
   dnd?: {
     isDragging: boolean;
@@ -113,6 +115,7 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
   rowRef,
   checked,
   onCheck,
+  onInsertAfter,
   dnd,
 }) => {
   const t = useT();
@@ -212,6 +215,21 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
           />
         )}
         <div>{seg.index}</div>
+        {onInsertAfter && seg.id && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInsertAfter(seg);
+            }}
+            title={t('table.insertAfter', { index: seg.index })}
+            aria-label={t('table.insertAfter', { index: seg.index })}
+            data-testid={`insert-after-${seg.index}`}
+            className="mx-auto mt-0.5 flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-indigo-600 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        )}
         {seg.segment_type === 'ON_SCREEN' && (
           <span
             className="mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"

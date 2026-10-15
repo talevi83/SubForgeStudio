@@ -24,6 +24,7 @@ from app.models.schemas import (
     QAIssueSchema,
     RetimeRequest,
     RetranslateRequest,
+    SegmentCreate,
     SegmentUpdate,
     SegmentsChangeResponse,
     SubtitleSegmentSchema,
@@ -498,6 +499,63 @@ def update_segments_bulk(
         session.add(rows[p.id])
     session.commit()
     return [_segment_to_schema(rows[i]) for i in ids]
+
+
+_SEGMENT_TYPES = {"DIALOGUE", "COMMS", "ON_SCREEN", "FOREIGN"}
+_MIN_NEW_DURATION = 0.1
+
+
+def _timecode(seconds: float) -> str:
+    ms = int(round(max(0.0, seconds) * 1000))
+    return f"{ms // 3_600_000:02d}:{ms // 60_000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+
+
+@router.post("/{job_id}/segments", response_model=SegmentsChangeResponse)
+def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(get_session)):
+    """Add a subtitle line by hand. It must not overlap an existing line; lines are renumbered."""
+    job = _get_job_or_404(session, job_id)
+    if job.status in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="The job is still running; add lines when it has finished")
+    start, end = round(req.start_time, 3), round(req.end_time, 3)
+    if start < 0:
+        raise HTTPException(status_code=422, detail="The start time cannot be negative")
+    if end - start < _MIN_NEW_DURATION:
+        raise HTTPException(status_code=422, detail="The end time must be after the start time")
+    if job.video_duration and start >= job.video_duration:
+        raise HTTPException(status_code=422,
+                            detail=f"The video ends at {_timecode(job.video_duration)}; the line starts after that")
+    if job.video_duration and end > job.video_duration + 0.5:
+        end = round(job.video_duration, 3)
+    original = (req.original_text or "").strip()
+    translated = strip_directional_marks(req.translated_text).strip() if req.translated_text else ""
+    if not original and not translated:
+        raise HTTPException(status_code=422, detail="Write the text of the new line")
+    kind = (req.segment_type or "DIALOGUE").upper()
+    if kind not in _SEGMENT_TYPES:
+        raise HTTPException(status_code=422, detail=f"Unknown line type: {req.segment_type}")
+
+    rows = _ordered_rows(session, job_id)
+    clash = next((r for r in rows if start < r.end_time - 0.0005 and end > r.start_time + 0.0005), None)
+    if clash is not None:
+        position = rows.index(clash) + 1
+        raise HTTPException(status_code=409, detail=(
+            f"Overlaps line #{position} ({_timecode(clash.start_time)} - {_timecode(clash.end_time)})"))
+
+    new = SubtitleSegmentRecord(
+        job_id=job_id, index=0, start_time=start, end_time=end,
+        original_text=original, translated_text=translated or None, translation_failed=False,
+        segment_type=kind, confidence=1.0,
+    )
+    _refresh_cps(new)
+    session.add(new)
+    rows.append(new)
+    rows.sort(key=lambda r: (r.start_time, r.end_time))
+    for position, row in enumerate(rows, start=1):
+        row.index = position
+        session.add(row)
+    session.commit()
+    session.refresh(new)
+    return SegmentsChangeResponse(changed=1, created_id=new.id, segments=[_segment_to_schema(r) for r in rows])
 
 
 # --- Timing-only tools -------------------------------------------------------------------------

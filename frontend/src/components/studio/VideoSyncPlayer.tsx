@@ -108,6 +108,7 @@ export const VideoSyncPlayer: React.FC = () => {
       const v = videoRef.current;
       if (!v) return;
       const state = useJobStore.getState();
+      if (state.insertDraft) return; // the "add a line" dialog is open
       const job = state.activeJob;
 
       // Target for [ and ]: the selected subtitle, else the one under the playhead
@@ -139,6 +140,12 @@ export const VideoSyncPlayer: React.FC = () => {
           break;
         case 'f':
           toggleFullscreen();
+          break;
+        case 'n':
+        case 'N':
+          e.preventDefault();
+          v.pause();
+          state.openInsert({ time: v.currentTime });
           break;
         case '[': {
           const seg = target();
@@ -322,6 +329,7 @@ export const VideoSyncPlayer: React.FC = () => {
               <div><kbd className="text-indigo-300">[</kbd> — {t('player.helpStart')}</div>
               <div><kbd className="text-indigo-300">]</kbd> — {t('player.helpEnd')}</div>
               <div><kbd className="text-indigo-300">F</kbd> — {t('player.helpFullscreen')}</div>
+              <div><kbd className="text-indigo-300">N</kbd> — {t('player.helpInsert')}</div>
               <div className="text-zinc-500 pt-1">{t('player.helpTarget')}</div>
             </div>
           )}
