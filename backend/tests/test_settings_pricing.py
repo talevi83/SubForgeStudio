@@ -79,7 +79,7 @@ def test_settings_api_roundtrip_and_validation(client: TestClient):
     bad = dict(again, translation={"model": "gemini-3.8-flash", "thinking": "minimal"})
     assert client.put("/api/settings", json=bad).status_code == 422
     # A model that can't do the task, and a retired model, are both rejected
-    wrong_task = dict(again, translation={"model": "gemini-3.5-flash-lite", "thinking": "low"})
+    wrong_task = dict(again, vision={"model": "gemini-4-argon", "thinking": "low"})
     assert client.put("/api/settings", json=wrong_task).status_code == 422
     retired = dict(again, glossary={"model": "gemini-2.5-flash-lite", "thinking": "default"})
     assert client.put("/api/settings", json=retired).status_code == 422
@@ -87,14 +87,15 @@ def test_settings_api_roundtrip_and_validation(client: TestClient):
 
 def test_catalog_lists_only_models_suited_to_each_task():
     assert set(mc.models_for("translation")) == {
-        "gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon", "gemini-3.1-pro-preview"}
+        "gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon", "gemini-3.1-pro-preview",
+        "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"}  # Flash-Lite: the budget choices
     assert set(mc.models_for("vision")) == {
         "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"}
     assert "gemini-4-argon" not in mc.models_for("glossary")
     for gone in ("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.8-flash-lite"):
         assert mc.get_model(gone) is None
     assert mc.resolve_model("gemini-2.5-flash", "vision") == "gemini-3.8-flash"
-    assert mc.resolve_model("gemini-2.5-flash-lite", "translation") == "gemini-3.8-flash"  # lite can't translate
+    assert mc.resolve_model("gemini-2.5-flash-lite", "translation") == "gemini-3.5-flash-lite"  # lite -> lite
     assert mc.resolve_model("gemini-3.5-flash", "translation") == "gemini-3.8-flash"
     assert mc.resolve_model("gemini-4-argon", "vision") == "gemini-3.5-flash-lite"
     assert mc.resolve_model("my-custom-model", "translation") == "my-custom-model"

@@ -59,7 +59,7 @@ Open **Settings** (bottom of the sidebar):
 
 - **Appearance** — interface language (Hebrew / English, with a full right-to-left layout in Hebrew) and dark / light theme. Saved per browser.
 - **AI models** — pick the Gemini model and thinking level separately for each step that calls Gemini: *Translation*, *Glossary pass* and *On-screen text (vision)*, plus the frame detail used for vision. Saved to `storage/settings.json` and used by every new job and retranslation.
-  - Each list shows only the models that can do that step (vision needs image input; translation needs a strong multilingual model). Models Google retired are migrated automatically in saved settings.
+  - Each list shows only the models that can do that step (vision needs image input). For translation, **Gemini 3.5 Flash-Lite** and **Gemini 3.1 Flash-Lite** are the budget choices: about 58% and 29% of the Flash cost for a translated episode (about 29% and 15% once the Flash promotion ends in January 2027), with weaker Hebrew quality (gender agreement, idioms), so check the result. With Flex on top they cost half again. Models Google retired are migrated automatically in saved settings.
   - Thinking uses `thinking_level` (minimal / low / medium / high, as supported by each model). "Model default" sends nothing.
   - **Flex mode** (per step): sends requests with `service_tier="flex"` at 50% of the Standard price. Google answers Flex when it has spare capacity, so a request can take minutes; busy (429/503) requests are retried with backoff and then sent once on the Standard tier, and the job warns how many requests fell back. Translation runs batch by batch, so Flex can make long episodes much slower.
   - Gemini 3+ models keep their default temperature, as Google recommends.
