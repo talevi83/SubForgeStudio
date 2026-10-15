@@ -4,9 +4,10 @@ import { isActiveStatus, isRtlLanguage } from '../../types';
 import type { Gender, SubtitleSegment, ThinkingLevel } from '../../types';
 import { SubtitleRow } from './SubtitleRow';
 import { RowTranslateDialog } from './RowTranslateDialog';
+import { InsertSegmentDialog } from './InsertSegmentDialog';
 import { findSegmentAt } from '../../utils/time';
 import { useT } from '../../i18n';
-import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X } from 'lucide-react';
+import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus } from 'lucide-react';
 import { api } from '../../services/api';
 import type { QAIssue } from '../../types';
 
@@ -196,6 +197,14 @@ export const SubtitleTable: React.FC = () => {
   }, [activeIndex, autoScroll]);
 
   const isLive = segments.length > 0 && segments.some((s) => !s.id);
+  const insertDraft = useJobStore((s) => s.insertDraft);
+  const openInsert = useJobStore((s) => s.openInsert);
+  const videoCurrentTimeNow = () => useJobStore.getState().videoCurrentTime;
+  const canInsert = !!activeJob && !isActiveStatus(activeJob.status) && !isLive;
+  const insertAfter = useCallback(
+    (seg: SubtitleSegment) => openInsert({ time: useJobStore.getState().videoCurrentTime, afterId: seg.id }),
+    [openInsert]
+  );
 
   return (
     <div className="flex flex-col h-full bg-surface border border-line rounded-xl overflow-hidden shadow-xl">
@@ -288,6 +297,17 @@ export const SubtitleTable: React.FC = () => {
                   {timingBusy ? t('table.recheckingTiming') : t('table.recheckTiming')}
                 </button>
               </span>
+            )}
+            {canInsert && (
+              <button
+                onClick={() => openInsert({ time: videoCurrentTimeNow() })}
+                title={t('table.addLineTitle')}
+                data-testid="add-line"
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-line text-zinc-300 hover:text-white hover:border-indigo-500/60"
+              >
+                <Plus className="w-3 h-3" />
+                {t('table.addLine')}
+              </button>
             )}
             {canRecheck && (
               <button
@@ -392,6 +412,7 @@ export const SubtitleTable: React.FC = () => {
           </button>
         </div>
       )}
+      {insertDraft && <InsertSegmentDialog draft={insertDraft} />}
       {rowsDialog && (
         <RowTranslateDialog
           count={checked.size}
@@ -448,6 +469,7 @@ export const SubtitleTable: React.FC = () => {
                     rowRef={isActive ? activeRowRef : undefined}
                     checked={checked.has(seg.id ?? -1)}
                     onCheck={canSelect ? handleCheck : undefined}
+                    onInsertAfter={canInsert ? insertAfter : undefined}
                     dnd={
                       canDrag && seg.id
                         ? {

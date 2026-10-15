@@ -284,7 +284,24 @@ export interface SegmentsChange {
   changed: number;
   retimed: boolean;
   message?: string | null;
+  /** The line POST /segments added */
+  created_id?: number | null;
   segments: SubtitleSegment[];
+}
+
+/** A subtitle line the user adds by hand. */
+export interface SegmentCreate {
+  start_time: number;
+  end_time: number;
+  original_text: string;
+  translated_text?: string | null;
+  segment_type?: SegmentType;
+}
+
+/** Where the "add a line" dialog opens: at a time (the playhead), or right after a line. */
+export interface InsertDraft {
+  time: number;
+  afterId?: number;
 }
 
 export const RTL_LANGUAGES = ['hebrew', 'arabic', 'persian', 'farsi', 'urdu', 'yiddish', 'he', 'ar', 'fa', 'ur', 'yi'];

@@ -10,6 +10,21 @@ export const formatTimecode = (seconds: number) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 };
 
+/**
+ * Parse a time the user typed. The full form is the one the table shows, HH:MM:SS,mmm
+ * ("00:12:34,500"); hours and milliseconds may be left out ("12:34,5" = 12 min 34.5 s) and "."
+ * works instead of ",". Returns seconds, or null when the text is not a valid time.
+ */
+export const parseTimecode = (text: string): number | null => {
+  const m = text.trim().match(/^(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:[,.](\d{1,3}))?$/);
+  if (!m) return null;
+  const [, h, mm, ss, ms] = m;
+  const minutes = Number(mm);
+  const seconds = Number(ss);
+  if (minutes > 59 || seconds > 59) return null;
+  return Number(h || 0) * 3600 + minutes * 60 + seconds + (ms ? Number(ms.padEnd(3, '0')) / 1000 : 0);
+};
+
 /** M:SS or H:MM:SS */
 export const formatClock = (seconds: number) => {
   const t = Math.max(0, Math.floor(seconds || 0));

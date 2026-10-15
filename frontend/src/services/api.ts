@@ -1,4 +1,4 @@
-import type { ParsedSubtitles, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
+import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -158,6 +158,11 @@ export const api = {
 
   retimeJob(jobId: string): Promise<SegmentsChange> {
     return request(`${API_BASE}/jobs/${jobId}/retime`, json('POST', {}), 'Timing check failed');
+  },
+
+  /** Add a subtitle line by hand (it must not overlap an existing line). */
+  createSegment(jobId: string, body: SegmentCreate): Promise<SegmentsChange> {
+    return request(`${API_BASE}/jobs/${jobId}/segments`, json('POST', body), 'Could not add the line');
   },
 
   moveSegment(jobId: string, segmentId: number, toPosition: number): Promise<SegmentsChange> {

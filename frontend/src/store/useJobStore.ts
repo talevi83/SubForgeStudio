@@ -14,6 +14,8 @@ import type {
   WebSocketEventPayload,
   IngestMode,
   ParsedSubtitles,
+  InsertDraft,
+  SegmentCreate,
 } from '../types';
 
 const CONFIG_STORAGE_KEY = 'subforge.pipelineConfig';
@@ -108,6 +110,12 @@ interface JobState {
   timingBusy: boolean;
   timingNote: string | null;
   timingUndo: { jobId: string; times: { id: number; start_time: number; end_time: number }[] } | null;
+  /** The "add a subtitle line" dialog, when open */
+  insertDraft: InsertDraft | null;
+  openInsert: (draft: InsertDraft) => void;
+  closeInsert: () => void;
+  /** Add a line; resolves to an error message, or null when it was added */
+  addSegment: (body: SegmentCreate) => Promise<string | null>;
   /** New project: make subtitles from the audio, or sync a subtitle file the user already has */
   ingestMode: IngestMode;
   syncFile: ParsedSubtitles | null;
@@ -251,6 +259,29 @@ export const useJobStore = create<JobState>((set, get) => {
     timingBusy: false,
     timingNote: null,
     timingUndo: null,
+    insertDraft: null,
+    openInsert: (draft) => {
+      const job = get().activeJob;
+      // Only on a finished job whose lines are all saved (not the live preview while it runs)
+      if (!job || isActiveStatus(job.status) || job.segments.some((s) => !s.id)) return;
+      set({ insertDraft: draft });
+    },
+    closeInsert: () => set({ insertDraft: null }),
+    addSegment: async (body) => {
+      const job = get().activeJob;
+      if (!job) return 'No project is open';
+      try {
+        const res = await api.createSegment(job.id, body);
+        if (get().activeJob?.id !== job.id) return null;
+        patchActiveJob({ segments: res.segments });
+        const created = res.segments.find((s) => s.id === res.created_id);
+        set({ insertDraft: null, selectedSegmentIndex: created?.index ?? null });
+        if (created) get().seekTo(Math.max(0, created.start_time - 0.5));
+        return null;
+      } catch (e: unknown) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
     ingestMode: savedSyncPrefs.ingestMode,
     syncFile: null,
     syncLanguage: null,
@@ -301,6 +332,7 @@ export const useJobStore = create<JobState>((set, get) => {
         set({
           activeJob: job,
           isLoading: false,
+          insertDraft: null,
           selectedSegmentIndex: null,
           videoCurrentTime: 0,
           seekRequest: null,
@@ -328,6 +360,7 @@ export const useJobStore = create<JobState>((set, get) => {
       set({
         activeJob: null,
         probeResult: null,
+        insertDraft: null,
         syncFile: null,
         syncLanguage: null,
         selectedSegmentIndex: null,
