@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { desktopApi } from '../../utils/desktop';
 import { useJobStore } from '../../store/useJobStore';
 import { api } from '../../services/api';
 import { isRtlLanguage } from '../../types';
@@ -96,7 +97,12 @@ export const VideoSyncPlayer: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onChange = () => {
+      const full = !!document.fullscreenElement;
+      setIsFullscreen(full);
+      // In the desktop window the player only fills the window; make the window itself follow
+      desktopApi()?.set_fullscreen?.(full)?.catch(() => {});
+    };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);

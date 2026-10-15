@@ -1,17 +1,19 @@
 """
 SubForge Studio desktop launcher - the entry point of the packaged "SubForge Studio.exe".
 
-Starts the FastAPI backend inside this process, shows an icon in the Windows system tray and
-opens the studio in the default browser. Right-click the tray icon for the menu; Quit stops
-the server.
+Starts the FastAPI backend inside this process and shows the studio in its own desktop window
+(pywebview on Microsoft Edge WebView2, which ships with Windows 10/11), with an icon in the
+system tray. Without WebView2 - or with --browser - the studio opens in the default browser
+instead, and the tray icon is the way back to it.
 
-User data (.env with the API key, storage/ with projects, models settings and logs) is kept
-outside the program folder, so rebuilding or replacing the program never touches it:
+User data (.env with the API key, storage/ with projects, settings and logs, the window's
+size and the studio's own preferences) is kept outside the program folder, so rebuilding or
+replacing the program never touches it:
   1. %SUBFORGE_HOME%, if set
   2. a "data" folder next to the .exe (portable mode - create the folder to opt in)
   3. %LOCALAPPDATA%\\SubForge Studio
 
-Also runs from source:  python packaging/launcher.py [--no-tray] [--no-browser]
+Also runs from source:  python packaging/launcher.py [--browser] [--no-tray] [--no-browser]
 """
 from __future__ import annotations
 
@@ -30,14 +32,31 @@ import traceback
 import urllib.request
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 APP_NAME = "SubForge Studio"
 FROZEN = getattr(sys, "frozen", False)
 WINDOWS = sys.platform == "win32"
 STARTUP_TIMEOUT = 180  # seconds; the first start preloads the CUDA libraries, which can be slow
 ACTIVE_STATUSES = {"QUEUED", "PROBING", "EXTRACTING_AUDIO", "TRANSCRIBING",
-                   "SCANNING_ONSCREEN", "REFINING", "TRANSLATING"}
+                   "SCANNING_ONSCREEN", "REFINING", "TRANSLATING", "SYNCING"}
+WINDOW_SIZE = (1440, 900)
+MIN_WINDOW_SIZE = (1024, 640)
+IDYES, IDNO = 6, 7
+
+# Window mode: brings the window to the front. A second launch of the exe calls it through the
+# local server (POST /api/desktop/show) instead of starting another copy.
+SHOW_WINDOW: Optional[Callable[[], None]] = None
+
+LOADING_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:#0b0b10;color:#e4e4e7;font-family:Segoe UI,system-ui,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+.box{text-align:center}.spin{width:34px;height:34px;margin:0 auto 18px;border:3px solid #27272a;
+border-top-color:#6366f1;border-radius:50%;animation:s 0.9s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+h1{font-size:18px;font-weight:600;margin:0 0 6px}p{font-size:12px;color:#a1a1aa;margin:2px 0}
+</style></head><body><div class="box"><div class="spin"></div><h1>SubForge Studio</h1>
+<p>Starting the studio&hellip;</p><p dir="rtl">&#1502;&#1508;&#1506;&#1497;&#1500; &#1488;&#1514; &#1492;&#1505;&#1496;&#1493;&#1491;&#1497;&#1493;&hellip;</p>
+</div></body></html>"""
 
 
 # ----------------------------------------------------------------------------- paths
@@ -124,13 +143,13 @@ def prepare_environment(home: Path) -> Path:
 # ----------------------------------------------------------------------------- helpers
 
 def message(text: str, kind: str = "error") -> int:
-    """Native message box on Windows (returns 6 for "Yes"); stderr elsewhere."""
+    """Native message box on Windows (returns IDYES / IDNO / 2 for cancel); stderr elsewhere."""
     if WINDOWS:
         import ctypes
-        flags = {"error": 0x10, "info": 0x40, "yesno": 0x04 | 0x30}[kind] | 0x40000  # topmost
-        return ctypes.windll.user32.MessageBoxW(None, text, APP_NAME, flags)
+        flags = {"error": 0x10, "info": 0x40, "yesno": 0x04 | 0x30, "yesnocancel": 0x03 | 0x30}[kind]
+        return ctypes.windll.user32.MessageBoxW(None, text, APP_NAME, flags | 0x40000)  # topmost
     print(f"[{kind}] {text}", file=sys.stderr)
-    return 6
+    return IDYES
 
 
 def open_path(path: Path) -> None:
@@ -146,8 +165,9 @@ def open_path(path: Path) -> None:
 _no_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def get_json(url: str, timeout: float = 2.0):
-    with _no_proxy.open(url, timeout=timeout) as response:
+def get_json(url: str, timeout: float = 2.0, post: bool = False):
+    req = urllib.request.Request(url, data=b"" if post else None, method="POST" if post else "GET")
+    with _no_proxy.open(req, timeout=timeout) as response:
         return json.loads(response.read())
 
 
@@ -155,6 +175,14 @@ def is_our_server(url: str) -> bool:
     try:
         info = get_json(url + "/api/system/info")
         return isinstance(info, dict) and "whisper_models" in info
+    except Exception:
+        return False
+
+
+def show_running_window(url: str) -> bool:
+    """Ask the copy that is already running to bring its window to the front."""
+    try:
+        return bool(get_json(url + "/api/desktop/show", timeout=3, post=True).get("shown"))
     except Exception:
         return False
 
@@ -172,7 +200,35 @@ def active_job_count(url: str) -> int:
         return 0
 
 
+def confirm_stop(url: str, action: str) -> bool:
+    busy = active_job_count(url)
+    if not busy:
+        return True
+    return message(f"{busy} project(s) are still running. {action} anyway?\n"
+                   "They can be resumed later.", "yesno") == IDYES
+
+
+def spawn_again(extra_args: list) -> None:
+    args = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
+    subprocess.Popen(args + extra_args, cwd=str(program_dir()))
+
+
 # ----------------------------------------------------------------------------- server
+
+def _add_desktop_route(app) -> None:  # type: ignore[no-untyped-def]
+    """POST /api/desktop/show - lets a second launch bring this window to the front."""
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    async def show(_request):  # type: ignore[no-untyped-def]
+        callback = SHOW_WINDOW
+        if callback is not None:
+            threading.Thread(target=callback, daemon=True).start()
+        return JSONResponse({"shown": callback is not None})
+
+    # Before the static frontend mounted at "/", which would otherwise answer first
+    app.router.routes.insert(0, Route("/api/desktop/show", show, methods=["POST"]))
+
 
 class ServerThread(threading.Thread):
     def __init__(self, host: str, port: int) -> None:
@@ -186,6 +242,7 @@ class ServerThread(threading.Thread):
             import uvicorn
             from app.main import app
 
+            _add_desktop_route(app)
             config = uvicorn.Config(app, host=self.host, port=self.port, log_config=None, access_log=False)
             self.server = uvicorn.Server(config)
             self.server.run()
@@ -229,56 +286,55 @@ def exit_now(code: int = 0) -> None:
 
 # ----------------------------------------------------------------------------- tray
 
-def run_tray(server: ServerThread, url: str, home: Path, env_file: Path, open_browser: bool) -> None:
+def make_tray(url: str, home: Path, env_file: Path, open_label: str, on_open: Callable[[], None],
+              on_quit: Callable, on_restart: Callable, with_browser_item: bool):
+    """The tray icon and its menu (shared by window and browser mode)."""
     import pystray
     from PIL import Image
 
-    image = Image.open(resource("packaging", "icon.ico"))
+    items = [pystray.MenuItem(open_label, lambda: on_open(), default=True)]
+    if with_browser_item:
+        items.append(pystray.MenuItem("Open in browser", lambda: webbrowser.open(url)))
+    items += [
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Open data folder", lambda: open_path(home)),
+        pystray.MenuItem("Edit settings (.env)", lambda: open_path(env_file)),
+        pystray.MenuItem("Server log", lambda: open_path(home / "storage" / "logs" / "server.log")),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Restart server", on_restart),
+        pystray.MenuItem("Quit", on_quit),
+    ]
+    return pystray.Icon("SubForgeStudio", Image.open(resource("packaging", "icon.ico")),
+                        f"{APP_NAME} - starting...", pystray.Menu(*items))
 
-    def open_studio() -> None:
-        webbrowser.open(url)
 
-    def confirm_stop(action: str) -> bool:
-        busy = active_job_count(url)
-        if not busy:
-            return True
-        return message(f"{busy} project(s) are still running. {action} anyway?\n"
-                       "They can be resumed later.", "yesno") == 6
+def run_tray(server: ServerThread, url: str, home: Path, env_file: Path, open_browser: bool) -> None:
+    """Browser mode: the tray icon runs on the main thread; the studio opens in the browser."""
 
     def quit_app(icon) -> None:  # type: ignore[no-untyped-def]
-        if not confirm_stop("Quit"):
+        if not confirm_stop(url, "Quit"):
             return
         icon.visible = False
         server.stop()
         icon.stop()
 
     def restart(icon) -> None:  # type: ignore[no-untyped-def]
-        if not confirm_stop("Restart"):
+        if not confirm_stop(url, "Restart"):
             return
         icon.visible = False
         server.stop()
-        args = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
-        subprocess.Popen(args + ["--no-browser"], cwd=str(program_dir()))
+        spawn_again(["--browser", "--no-browser"])
         icon.stop()
 
-    menu = pystray.Menu(
-        pystray.MenuItem("Open SubForge Studio", open_studio, default=True),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Open data folder", lambda: open_path(home)),
-        pystray.MenuItem("Edit settings (.env)", lambda: open_path(env_file)),
-        pystray.MenuItem("Server log", lambda: open_path(home / "storage" / "logs" / "server.log")),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Restart server", restart),
-        pystray.MenuItem("Quit", quit_app),
-    )
-    icon = pystray.Icon("SubForgeStudio", image, f"{APP_NAME} - starting...", menu)
+    icon = make_tray(url, home, env_file, "Open SubForge Studio", lambda: webbrowser.open(url),
+                     quit_app, restart, with_browser_item=False)
 
     def setup(icon) -> None:  # type: ignore[no-untyped-def]
         icon.visible = True
         if server.wait_ready():
             icon.title = f"{APP_NAME} - {url}"
             if open_browser:
-                open_studio()
+                webbrowser.open(url)
             else:
                 try:
                     icon.notify("Running in the tray. Click the icon to open the studio.", APP_NAME)
@@ -292,14 +348,158 @@ def run_tray(server: ServerThread, url: str, home: Path, env_file: Path, open_br
     icon.run(setup=setup)
 
 
+# ----------------------------------------------------------------------------- desktop window
+
+def window_problem() -> Optional[str]:
+    """None when the studio can open in its own window; otherwise the reason it can't."""
+    try:
+        import webview  # noqa: F401
+    except Exception as e:
+        return f"pywebview is not available ({e})"
+    if WINDOWS:
+        try:
+            from webview.platforms import winforms
+        except Exception as e:
+            return f"the Windows web view could not start ({e})"
+        # Without WebView2 pywebview falls back to Internet Explorer, which can't run the studio
+        if getattr(winforms, "renderer", "") != "edgechromium":
+            return "Microsoft Edge WebView2 Runtime is not installed"
+    return None
+
+
+class DesktopApi:
+    """Called from the page as window.pywebview.api.* (pywebview's JavaScript bridge)."""
+
+    def __init__(self) -> None:
+        self._window = None
+        self._fullscreen = False
+
+    def set_fullscreen(self, on: bool) -> bool:
+        """The video player went (or left) fullscreen: make the whole window follow."""
+        on = bool(on)
+        if self._window is not None and on != self._fullscreen:
+            self._fullscreen = on
+            self._window.toggle_fullscreen()
+        return self._fullscreen
+
+
+def _load_window_size(home: Path):
+    try:
+        data = json.loads((home / "window.json").read_text())
+        w, h = int(data["width"]), int(data["height"])
+        if w >= MIN_WINDOW_SIZE[0] and h >= MIN_WINDOW_SIZE[1]:
+            return w, h
+    except Exception:
+        pass
+    return WINDOW_SIZE
+
+
+def _save_window_size(home: Path, window) -> None:  # type: ignore[no-untyped-def]
+    try:
+        w, h = int(window.width), int(window.height)
+        if w >= MIN_WINDOW_SIZE[0] and h >= MIN_WINDOW_SIZE[1]:
+            (home / "window.json").write_text(json.dumps({"width": w, "height": h}))
+    except Exception:
+        pass
+
+
+def run_window(server: ServerThread, url: str, home: Path, env_file: Path) -> None:
+    """Window mode: the studio in its own window (main thread); the tray icon runs alongside."""
+    global SHOW_WINDOW
+    import webview
+
+    webview.settings["ALLOW_DOWNLOADS"] = True                 # exports ask where to save
+    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True  # e.g. the pricing page
+    api = DesktopApi()
+    width, height = _load_window_size(home)
+    window = webview.create_window(
+        APP_NAME, html=LOADING_HTML, width=width, height=height, min_size=MIN_WINDOW_SIZE,
+        background_color="#0B0B10", js_api=api, text_select=True,
+    )
+    api._window = window
+    state = {"leaving": False, "restart": False}
+
+    def show_window() -> None:
+        try:
+            window.show()
+            window.restore()
+            window.on_top = True   # pull it in front of other windows, then let it behave normally
+            window.on_top = False
+        except Exception:
+            pass
+
+    def leave(restart: bool) -> None:
+        if not confirm_stop(url, "Restart" if restart else "Quit"):
+            return
+        state.update(leaving=True, restart=restart)
+        _save_window_size(home, window)
+        window.destroy()
+
+    icon = make_tray(url, home, env_file, "Open SubForge Studio", show_window,
+                     lambda: leave(False), lambda: leave(True), with_browser_item=True)
+
+    def on_closing() -> bool:
+        if state["leaving"]:
+            return True
+        busy = active_job_count(url)
+        if busy:
+            answer = message(
+                f"{busy} project(s) are still running.\n\n"
+                "Yes - quit now (they can be resumed later)\n"
+                "No - keep working in the background (tray icon)\n"
+                "Cancel - go back", "yesnocancel")
+            if answer == IDNO:
+                window.hide()
+                try:
+                    icon.notify("Still working in the background. Click the tray icon to open the window.", APP_NAME)
+                except Exception:
+                    pass
+                return False
+            if answer != IDYES:
+                return False
+        _save_window_size(home, window)
+        state["leaving"] = True
+        return True
+
+    window.events.closing += on_closing
+
+    def boot() -> None:
+        if server.wait_ready():
+            icon.title = f"{APP_NAME} - {url}"
+            window.load_url(url)
+        else:
+            message(failure_text(server, home))
+            state["leaving"] = True
+            window.destroy()
+
+    icon.visible = True
+    icon.run_detached()  # Windows: the tray gets its own thread and message loop
+    SHOW_WINDOW = show_window
+    try:
+        webview.start(boot, private_mode=False, storage_path=str(home / "webview"),
+                      icon=str(resource("packaging", "icon.ico")))
+    finally:
+        SHOW_WINDOW = None
+        try:
+            icon.visible = False
+            icon.stop()
+        except Exception:
+            pass
+    server.stop()
+    if state["restart"]:
+        spawn_again([])
+
+
 # ----------------------------------------------------------------------------- main
 
 def main() -> int:
     multiprocessing.freeze_support()
     parser = argparse.ArgumentParser(prog=APP_NAME)
-    parser.add_argument("--no-tray", action="store_true", help="run in the foreground without a tray icon")
-    parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
+    parser.add_argument("--browser", action="store_true", help="open the studio in the browser, not in its own window")
+    parser.add_argument("--no-tray", action="store_true", help="run in the foreground without a tray icon or window")
+    parser.add_argument("--no-browser", action="store_true", help="browser mode: do not open the browser at start")
     args, _ = parser.parse_known_args()
+    use_browser = args.browser or os.environ.get("SUBFORGE_UI", "").lower() == "browser"
 
     home = data_dir()
     home.mkdir(parents=True, exist_ok=True)
@@ -313,8 +513,8 @@ def main() -> int:
     browse_host = "localhost" if host in ("0.0.0.0", "127.0.0.1", "::", "[::]") else host
     url = f"http://{browse_host}:{port}"
 
-    if is_our_server(url):  # already running: just bring up the studio
-        if not args.no_browser:
+    if is_our_server(url):  # already running: bring up its window (or the browser)
+        if not show_running_window(url) and not args.no_browser:
             webbrowser.open(url)
         return 0
     if port_busy(port):
@@ -338,6 +538,18 @@ def main() -> int:
         except KeyboardInterrupt:
             server.stop()
         exit_now(0)
+
+    if not use_browser:
+        problem = window_problem()
+        if problem is None:
+            try:
+                run_window(server, url, home, env_file)
+                exit_now(0)
+            except Exception:
+                print(f"Could not open the studio window, using the browser instead:\n{traceback.format_exc()}",
+                      file=sys.stderr, flush=True)
+        else:
+            print(f"Opening the studio in the browser: {problem}", file=sys.stderr, flush=True)
 
     run_tray(server, url, home, env_file, open_browser=not args.no_browser)
     exit_now(0)

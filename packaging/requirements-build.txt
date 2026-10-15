@@ -2,3 +2,5 @@
 pyinstaller>=6.10
 pystray>=0.19.5
 pillow>=10.0
+# The studio's own window (Edge WebView2 on Windows; pulls in pythonnet there)
+pywebview>=6.2

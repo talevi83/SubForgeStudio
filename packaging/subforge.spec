@@ -48,6 +48,15 @@ if sys.platform == "win32":
 
 binaries = collect_dynamic_libs("ctranslate2")
 
+# Desktop window: pywebview on Edge WebView2 (WinForms through pythonnet)
+if sys.platform == "win32":
+    for package in ("webview", "clr_loader", "pythonnet"):
+        try:
+            datas += collect_data_files(package)        # webview's JS + WebView2 DLLs, ClrLoader.dll
+            binaries += collect_dynamic_libs(package)
+        except Exception as e:
+            print(f"WARNING: could not collect {package}: {e}")
+
 # --- modules ------------------------------------------------------------------------------------
 # Every backend module, listed from the source tree (importing them here would run their setup code)
 app_modules = []
@@ -63,6 +72,8 @@ hiddenimports = (
     + collect_submodules("websockets")
     + collect_submodules("google.genai", filter=lambda name: ".tests" not in name)
     + ["sqlalchemy.dialects.sqlite", "pystray._win32" if sys.platform == "win32" else "pystray._xorg"]
+    + (["webview", "webview.platforms.winforms", "webview.platforms.edgechromium", "webview.platforms.mshtml",
+        "clr", "clr_loader", "pythonnet"] if sys.platform == "win32" else ["webview"])
 )
 
 a = Analysis(

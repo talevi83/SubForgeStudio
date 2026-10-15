@@ -275,11 +275,11 @@ Open your browser at: **`http://localhost:5173`** (API requests & WebSockets pro
 
 ## 📦 Desktop App (Standalone EXE)
 
-`build_exe.bat` turns the project into a standalone Windows program: a folder with **`SubForge Studio.exe`** that includes Python, every library, the built frontend, FFmpeg and the NVIDIA CUDA runtime. The target PC needs no Python, Node or FFmpeg (only an NVIDIA driver for GPU transcription).
+`build_exe.bat` turns the project into a standalone Windows program: a folder with **`SubForge Studio.exe`** that includes Python, every library, the built frontend, FFmpeg and the NVIDIA CUDA runtime. The target PC needs no Python, Node or FFmpeg (only an NVIDIA driver for GPU transcription). The studio opens in **its own window** (pywebview on Microsoft Edge WebView2, which comes with Windows 10/11).
 
 ### Build
 Requires the same tools as the Quickstart (Python or `uv`, Node.js). Double-click **`build_exe.bat`**. It:
-1. installs the backend and build dependencies (`packaging/requirements-build.txt`: PyInstaller, pystray, Pillow) into `backend\.venv`;
+1. installs the backend and build dependencies (`packaging/requirements-build.txt`: PyInstaller, pystray, Pillow, pywebview) into `backend\.venv`;
 2. builds the frontend;
 3. downloads a static FFmpeg build into `packaging\ffmpeg` (once; put your own `ffmpeg.exe` + `ffprobe.exe` there to skip it);
 4. packages everything with PyInstaller (`packaging/subforge.spec`) into **`dist\SubForge Studio\`**;
@@ -288,12 +288,14 @@ Requires the same tools as the Quickstart (Python or `uv`, Node.js). Double-clic
 The output is about 2-3 GB, mostly the NVIDIA libraries. Copy or move the **whole** `dist\SubForge Studio` folder; the exe needs the `_internal` folder next to it.
 
 ### Using it
-- Run `SubForge Studio.exe`: the server starts in the background, an icon appears in the system tray and the studio opens in your browser. Running the exe again while it's open just opens the browser.
-- **Tray menu** (right-click): *Open SubForge Studio* (or just click the icon), *Open data folder*, *Edit settings (.env)*, *Server log*, *Restart server* (after editing `.env`) and *Quit*. Quit and Restart ask first if a project is still running.
-- **Data folder:** the `.env`, projects database, settings and logs live in `%LOCALAPPDATA%\SubForge Studio`, not in the program folder, so rebuilding or replacing the program never touches them. To keep everything next to the exe instead (portable mode), create an empty `data` folder beside `SubForge Studio.exe`; the `SUBFORGE_HOME` environment variable overrides both.
+- Run `SubForge Studio.exe`: a SubForge Studio window opens right away (with a short loading screen while the server starts) and an icon appears in the system tray. Running the exe again while it's open brings the existing window to the front.
+- **The window** remembers its size. Exports ask where to save the file (*Save as*, starting in Downloads), and the video player's fullscreen makes the whole window fullscreen. Closing the window quits the app; if a project is still running it asks first: *Yes* quits (the project can be resumed later), *No* keeps working in the background with only the tray icon, *Cancel* goes back.
+- **Tray menu** (right-click): *Open SubForge Studio* (or just click the icon), *Open in browser*, *Open data folder*, *Edit settings (.env)*, *Server log*, *Restart server* (after editing `.env`) and *Quit*. Quit and Restart ask first if a project is still running.
+- **Browser instead of a window:** start the exe with `--browser` (or set the environment variable `SUBFORGE_UI=browser`). If WebView2 is missing, the studio opens in the browser automatically (the reason is written to `launcher.log`); WebView2 can be installed from Microsoft (*Evergreen Runtime*).
+- **Data folder:** the `.env`, projects database, settings, logs, the window's size and the studio's own preferences (`webview\`) live in `%LOCALAPPDATA%\SubForge Studio`, not in the program folder, so rebuilding or replacing the program never touches them. To keep everything next to the exe instead (portable mode), create an empty `data` folder beside `SubForge Studio.exe`; the `SUBFORGE_HOME` environment variable overrides both.
 - Startup errors are shown in a message box. Details are in `launcher.log` and `storage\logs\server.log` in the data folder.
 - Whisper models are downloaded on first use to the usual Hugging Face cache in your user profile, shared with the developer setup.
-- The launcher also runs from source, without building: `backend\.venv\Scripts\python.exe packaging\launcher.py` (add `--no-tray` to run in the console, `--no-browser` to skip opening the browser).
+- The launcher also runs from source, without building: `backend\.venv\Scripts\python.exe packaging\launcher.py` (`--browser` for browser mode, `--no-tray` to run in the console, `--no-browser` to skip opening the browser in browser mode).
 
 To change the icon, edit and run `packaging/make_icon.py` (it writes `packaging/icon.ico`).
 
@@ -330,5 +332,6 @@ The test suite covers:
 - **`test_qa.py`**: quality check (untranslated words, glossary mismatches, pronoun/verb agreement).
 - **`test_storage_cleanup.py`**: storage report and cleanup never touch active jobs, your own videos or the live server log.
 - **`test_logs.py`**: per-job log capture (including worker threads) and log export.
+- **`test_desktop_launcher.py`**: the exe's window mode with pywebview faked: loading screen, persistent storage and downloads, closing with running projects, tray quit/restart, second launch, fullscreen bridge.
 - **`test_insert_segment.py`**: adding a line by hand: renumbering, overlap rejection naming the line, invalid times and text, clamping to the video end, running jobs.
 - **`test_sync.py`**: subtitle file parsing (formats, encodings, positions, language), alignment (delay, frame rate, cuts, wrong anchors), word and Gemini matching (fake client), burned-in detection, and sync jobs end to end through the API (same language, Hebrew with Gemini, burned-in subtitles).
