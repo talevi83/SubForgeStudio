@@ -34,10 +34,11 @@ const ALL_STAGES = [
   { key: 'SYNCING', icon: TimerReset },
 ];
 
-const formatEta = (seconds?: number | null) => {
+const formatEta = (seconds?: number | null, language: string = 'en') => {
   if (!seconds || seconds <= 0) return null;
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
+  if (language === 'he') return mins > 0 ? `${mins} דק׳ ${secs} שנ׳` : `${secs} שנ׳`;
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 };
 
@@ -142,10 +143,12 @@ export const LivePipelineBar: React.FC = () => {
               <span>{activeJob.speed_factor}x</span>
             </div>
           ) : null}
-          {isRunning && formatEta(activeJob.eta_seconds) && (
+          {isRunning && formatEta(activeJob.eta_seconds, language) && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-sunken border border-line text-zinc-300 font-mono">
               <Clock className="w-3.5 h-3.5 text-indigo-400" />
-              <span dir="ltr">{t('monitor.eta', { time: formatEta(activeJob.eta_seconds) || '' })}</span>
+              <span dir={language === 'he' ? 'rtl' : 'ltr'}>
+                {t('monitor.eta', { time: formatEta(activeJob.eta_seconds, language) || '' })}
+              </span>
             </div>
           )}
           {usageTotal ? (
