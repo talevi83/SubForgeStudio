@@ -344,8 +344,39 @@ class StageUsage:
 
 
 @dataclass
+class LocalUsage:
+    model: str = ""
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    segments_tagged: int = 0
+    frames_filtered: int = 0
+    saved_tokens: int = 0
+    saved_cost_usd: float = 0.0
+
+    def add(self, other: "LocalUsage") -> None:
+        self.model = other.model or self.model
+        self.requests += other.requests
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        self.segments_tagged += other.segments_tagged
+        self.frames_filtered += other.frames_filtered
+        self.saved_tokens += other.saved_tokens
+        self.saved_cost_usd = round((self.saved_cost_usd or 0.0) + (other.saved_cost_usd or 0.0), 6)
+
+
+@dataclass
 class UsageTracker:
     stages: Dict[str, StageUsage] = field(default_factory=dict)
+    local: LocalUsage = field(default_factory=LocalUsage)
+
+    def has_activity(self) -> bool:
+        return bool(
+            self.stages
+            or self.local.requests > 0
+            or self.local.saved_tokens > 0
+            or self.local.frames_filtered > 0
+        )
 
     def record(self, stage: str, model: str, usage_metadata: Any, flex: bool = False,
                fell_back: bool = False) -> None:
@@ -369,19 +400,92 @@ class UsageTracker:
                        flex_fallbacks=int(fell_back))
         )
 
+    def record_local_ai(
+        self,
+        model: str,
+        requests: int = 1,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        segments_tagged: int = 0,
+        saved_tokens: int = 0,
+        saved_cost_usd: float = 0.0,
+    ) -> None:
+        self.local.add(
+            LocalUsage(
+                model=model,
+                requests=requests,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                segments_tagged=segments_tagged,
+                saved_tokens=saved_tokens,
+                saved_cost_usd=saved_cost_usd,
+            )
+        )
+
+    def record_local_savings(
+        self,
+        saved_tokens: int = 0,
+        frames_filtered: int = 0,
+        saved_cost_usd: float = 0.0,
+    ) -> None:
+        if saved_tokens <= 0 and frames_filtered <= 0:
+            return
+        self.local.add(
+            LocalUsage(
+                frames_filtered=max(0, frames_filtered),
+                saved_tokens=max(0, saved_tokens),
+                saved_cost_usd=max(0.0, saved_cost_usd),
+            )
+        )
+
     def flex_fallbacks(self) -> int:
         return sum(s.flex_fallbacks for s in self.stages.values())
 
     def merge_dict(self, data: Optional[Dict[str, Any]]) -> None:
-        for stage, values in ((data or {}).get("stages") or {}).items():
-            self.stages.setdefault(stage, StageUsage()).add(StageUsage(**values))
+        if not data:
+            return
+        stage_keys = set(StageUsage.__dataclass_fields__.keys())
+        for stage, values in (data.get("stages") or {}).items():
+            if isinstance(values, dict):
+                filtered = {k: v for k, v in values.items() if k in stage_keys}
+                self.stages.setdefault(stage, StageUsage()).add(StageUsage(**filtered))
+        local_data = data.get("local")
+        if isinstance(local_data, dict):
+            local_keys = set(LocalUsage.__dataclass_fields__.keys())
+            filtered_local = {k: v for k, v in local_data.items() if k in local_keys}
+            self.local.add(LocalUsage(**filtered_local))
 
     def to_dict(self) -> Dict[str, Any]:
         costs = [s.cost_usd for s in self.stages.values()]
-        total = None if any(c is None for c in costs) else round(sum(costs), 6)
+        total_cost = None if any(c is None for c in costs) else round(sum(costs), 6)
+        models: Dict[str, StageUsage] = {}
+        for st in self.stages.values():
+            key = st.model or "unknown"
+            models.setdefault(key, StageUsage(model=key)).add(st)
+
+        models_dict: Dict[str, Any] = {}
+        for m_key, m_val in models.items():
+            d = dict(vars(m_val))
+            d["total_tokens"] = m_val.input_tokens + m_val.output_tokens + m_val.thinking_tokens
+            if d["cost_usd"] is not None:
+                d["cost_usd"] = round(d["cost_usd"], 6)
+            models_dict[m_key] = d
+
+        total_in = sum(s.input_tokens for s in self.stages.values())
+        total_out = sum(s.output_tokens for s in self.stages.values())
+        total_think = sum(s.thinking_tokens for s in self.stages.values())
+        local_dict = dict(vars(self.local))
+        local_dict["total_tokens"] = self.local.input_tokens + self.local.output_tokens
+
         return {
             "stages": {k: vars(v) for k, v in self.stages.items()},
-            "total_cost_usd": total,
+            "models": models_dict,
+            "local": local_dict,
+            "total_input_tokens": total_in,
+            "total_output_tokens": total_out,
+            "total_thinking_tokens": total_think,
+            "total_tokens": total_in + total_out + total_think,
+            "total_cost_usd": total_cost,
         }
 
 
@@ -433,17 +537,23 @@ def estimate_job_cost(
     detect_onscreen_text: bool,
     app_settings: Any,
     glossary_pass: bool = True,
-    translation_batch_size: int = 30,
+    translation_batch_size: int = 60,
     system_prompt_tokens: int = 1900,
     frame_interval: float = 2.0,
     max_frames: int = 360,
     vision_batch_size: int = 12,
     has_forced_track: bool = False,
     sync_lines: int = 0,
+    cost_saver_mode: Optional[bool] = None,
 ) -> Dict[str, Any]:
     minutes = max(0.0, duration_seconds) / 60
     segments = max(1, round(minutes * SEGMENTS_PER_MINUTE))
     stages: Dict[str, Any] = {}
+    saver = (
+        bool(getattr(app_settings, "cost_saver_mode", False))
+        if cost_saver_mode is None
+        else bool(cost_saver_mode)
+    )
 
     if enable_translation:
         if glossary_pass:
@@ -453,7 +563,7 @@ def estimate_job_cost(
                 flex=getattr(g, "flex", False))
         t = app_settings.translation
         batches = ceil(segments / translation_batch_size)
-        per_batch_in = (system_prompt_tokens + (700 if glossary_pass else 0)
+        per_batch_in = (system_prompt_tokens + (350 if glossary_pass else 0)
                         + translation_batch_size * _TRANSLATION_TOKENS_PER_SEGMENT_IN + 8 * 40)
         stages["translation"] = _stage_estimate(
             t.model, t.thinking, batches, per_batch_in, translation_batch_size * _TRANSLATION_TOKENS_PER_SEGMENT_OUT,
@@ -462,6 +572,8 @@ def estimate_job_cost(
     if detect_onscreen_text and not has_forced_track:
         v = app_settings.vision
         frames = min(max_frames, int(duration_seconds / frame_interval * _FRAMES_SENT_RATIO))
+        if saver and frames:
+            frames = max(1, int(frames * 0.25))
         batches = ceil(frames / vision_batch_size) if frames else 0
         img = image_tokens(v.model, app_settings.vision_media_resolution)
         stages["onscreen"] = _stage_estimate(

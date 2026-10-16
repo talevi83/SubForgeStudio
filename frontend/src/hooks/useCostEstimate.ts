@@ -9,6 +9,7 @@ interface Params {
   has_forced_track?: boolean;
   /** "Sync my subtitles" with Gemini line matching: the number of lines in the file */
   sync_lines?: number;
+  cost_saver_mode?: boolean;
   settings?: AppSettings | null;
 }
 

@@ -187,6 +187,7 @@ export const api = {
     detect_onscreen_text: boolean;
     has_forced_track?: boolean;
     sync_lines?: number;
+    cost_saver_mode?: boolean;
     settings?: AppSettings;
   }): Promise<CostEstimate> {
     return request(`${API_BASE}/settings/estimate`, json('POST', params), 'Could not estimate cost');
@@ -197,6 +198,18 @@ export const api = {
       `${API_BASE}/settings/check`,
       json('POST', { settings, api_key: apiKey || undefined }),
       'Could not test the models'
+    );
+  },
+
+  getOllamaStatus(): Promise<import('../types').OllamaStatus> {
+    return request(`${API_BASE}/settings/ollama/status`, undefined, 'Could not check local Ollama status');
+  },
+
+  setupOllama(model?: string): Promise<import('../types').OllamaStatus> {
+    return request(
+      `${API_BASE}/settings/ollama/setup`,
+      json('POST', model ? { model } : {}),
+      'Could not install or start Ollama'
     );
   },
 

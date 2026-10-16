@@ -21,8 +21,9 @@ import {
   Coins,
   TimerReset,
   CheckCircle2,
+  Cpu,
 } from 'lucide-react';
-import type { SyncReport } from '../../types';
+import type { JobUsage, ModelUsage, SyncReport } from '../../types';
 
 const ALL_STAGES = [
   { key: 'PROBING', icon: Search },
@@ -187,6 +188,8 @@ export const LivePipelineBar: React.FC = () => {
 
       {isRunning && stageMessage && <div className="text-[11px] text-zinc-400 truncate">{stageMessage}</div>}
 
+      {activeJob.usage && <UsageSummaryBar usage={activeJob.usage} isRunning={isRunning} language={language} />}
+
       {isFailed && activeJob.error_message && (
         <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
           <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -201,6 +204,137 @@ export const LivePipelineBar: React.FC = () => {
           <span>{activeJob.warning_message}</span>
         </div>
       )}
+    </div>
+  );
+};
+
+const aggregateModels = (usage: JobUsage): ModelUsage[] => {
+  if (usage.models && Object.keys(usage.models).length > 0) {
+    return Object.values(usage.models);
+  }
+  const map = new Map<string, ModelUsage>();
+  for (const st of Object.values(usage.stages || {})) {
+    if (!st) continue;
+    const key = st.model || 'unknown';
+    const existing = map.get(key);
+    const total = (st.input_tokens || 0) + (st.output_tokens || 0) + (st.thinking_tokens || 0);
+    if (!existing) {
+      map.set(key, {
+        ...st,
+        model: key,
+        total_tokens: total,
+      });
+    } else {
+      existing.requests += st.requests || 0;
+      existing.input_tokens += st.input_tokens || 0;
+      existing.output_tokens += st.output_tokens || 0;
+      existing.thinking_tokens += st.thinking_tokens || 0;
+      existing.total_tokens += total;
+      existing.cost_usd =
+        existing.cost_usd === null || st.cost_usd === null ? null : (existing.cost_usd || 0) + (st.cost_usd || 0);
+    }
+  }
+  return Array.from(map.values());
+};
+
+/** Live and post-run summary of tokens per model, local AI queries, and saved tokens. */
+const UsageSummaryBar: React.FC<{ usage: JobUsage; isRunning: boolean; language: 'en' | 'he' }> = ({
+  usage,
+  isRunning,
+  language,
+}) => {
+  const t = useT();
+  const models = aggregateModels(usage);
+  const local = usage.local;
+  const hasLocalActivity = !!(local && (local.requests > 0 || local.saved_tokens > 0 || local.frames_filtered > 0));
+  if (models.length === 0 && !hasLocalActivity) return null;
+
+  const localRequests = local?.requests || 0;
+  const savedTokens = local?.saved_tokens || 0;
+  const framesFiltered = local?.frames_filtered || 0;
+
+  return (
+    <div
+      className="p-2.5 rounded-lg bg-sunken/80 border border-line text-xs flex flex-wrap items-center justify-between gap-2"
+      data-testid="usage-summary-bar"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-zinc-200 flex items-center gap-1.5 me-1">
+          <Coins className={`w-3.5 h-3.5 ${isRunning ? 'text-indigo-400 animate-pulse' : 'text-amber-400'}`} />
+          {isRunning ? t('monitor.usageSummaryLive') : t('monitor.usageSummaryDone')}:
+        </span>
+
+        {models.map((m) => {
+          const total = m.total_tokens ?? m.input_tokens + m.output_tokens + m.thinking_tokens;
+          return (
+            <div
+              key={m.model}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface border border-line text-zinc-200"
+              data-testid={`usage-model-${m.model}`}
+            >
+              <span className="font-mono font-semibold text-indigo-300" dir="ltr">
+                {m.model}
+              </span>
+              <span className="text-zinc-500">·</span>
+              <span className="font-medium">
+                {t('monitor.usageModelTokens', { tokens: total.toLocaleString() })}
+              </span>
+              <span className="text-zinc-400 text-[11px]">
+                ({t('monitor.usageModelBreakdown', {
+                  input: m.input_tokens.toLocaleString(),
+                  output: m.output_tokens.toLocaleString(),
+                  thinking: m.thinking_tokens.toLocaleString(),
+                })})
+              </span>
+              <span className="text-zinc-500">·</span>
+              <span className="text-zinc-300">{t('monitor.usageRequests', { count: m.requests })}</span>
+              {m.cost_usd !== null && (
+                <>
+                  <span className="text-zinc-500">·</span>
+                  <span className="font-mono text-amber-300" dir="ltr">
+                    {formatUsd(m.cost_usd, language)}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface border border-line text-zinc-300"
+          data-testid="usage-local-queries"
+        >
+          <Cpu className="w-3.5 h-3.5 text-sky-400" />
+          <span>
+            {local?.model
+              ? t('monitor.localAiQueries', { model: local.model, count: localRequests })
+              : t('monitor.localAiNoQueries', { count: localRequests })}
+          </span>
+        </div>
+
+        <div
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-medium ${
+            savedTokens > 0
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-surface border-line text-zinc-400'
+          }`}
+          data-testid="usage-saved-tokens"
+        >
+          <span>{t('monitor.localSavedTokens', { tokens: savedTokens.toLocaleString() })}</span>
+          {framesFiltered > 0 && (
+            <span className="text-emerald-300/80 text-[11px]">
+              {t('monitor.localSavedFrames', { frames: framesFiltered })}
+            </span>
+          )}
+          {local && local.saved_cost_usd > 0 && (
+            <span className="font-mono text-emerald-300/90" dir="ltr">
+              (~{formatUsd(local.saved_cost_usd, language)})
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

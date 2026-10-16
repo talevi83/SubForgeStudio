@@ -197,6 +197,7 @@ export const useJobStore = create<JobState>((set, get) => {
           progress_percent: data.progress_percent ?? activeJob.progress_percent,
           speed_factor: data.speed_factor ?? activeJob.speed_factor,
           eta_seconds: data.eta_seconds ?? activeJob.eta_seconds,
+          ...(data.usage ? { usage: data.usage } : {}),
         });
         if (data.message) set({ stageMessage: data.message });
         break;
@@ -214,6 +215,7 @@ export const useJobStore = create<JobState>((set, get) => {
           speed_factor: data.speed_factor ?? activeJob.speed_factor,
           eta_seconds: data.eta_seconds ?? activeJob.eta_seconds,
           segments,
+          ...(data.usage ? { usage: data.usage } : {}),
         });
         break;
       }
@@ -222,17 +224,24 @@ export const useJobStore = create<JobState>((set, get) => {
         patchActiveJob({
           segments: data.segments_batch || [],
           progress_percent: data.progress_percent || activeJob.progress_percent,
+          ...(data.usage ? { usage: data.usage } : {}),
         });
         break;
       }
       case 'BATCH_TRANSLATED': {
         if (!data.segments_batch) break;
-        patchActiveJob({ segments: mergeSegments(activeJob.segments, data.segments_batch) });
+        patchActiveJob({
+          segments: mergeSegments(activeJob.segments, data.segments_batch),
+          ...(data.usage ? { usage: data.usage } : {}),
+        });
         break;
       }
       case 'JOB_COMPLETED':
       case 'JOB_FAILED':
       case 'JOB_CANCELLED': {
+        if (data.usage) {
+          patchActiveJob({ usage: data.usage });
+        }
         set({ stageMessage: null });
         get().refreshActiveJob();
         get().fetchJobs();

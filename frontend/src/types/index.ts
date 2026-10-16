@@ -154,6 +154,7 @@ export interface WebSocketEventPayload {
   segment?: SubtitleSegment | null;
   segments_batch?: SubtitleSegment[] | null;
   message?: string | null;
+  usage?: JobUsage | null;
 }
 
 export interface HardwareInfo {
@@ -327,6 +328,7 @@ export interface AppSettings {
   glossary: GeminiCallSettings;
   vision: GeminiCallSettings;
   vision_media_resolution: MediaResolution;
+  cost_saver_mode?: boolean;
 }
 
 export interface CatalogModel {
@@ -371,6 +373,18 @@ export interface SettingsResponse {
   pricing_checked: string;
 }
 
+export interface OllamaStatus {
+  installed: boolean;
+  running: boolean;
+  models: string[];
+  selected_model: string | null;
+  recommended_model: string;
+  download_url: string;
+  installing: boolean;
+  step: string | null;
+  error: string | null;
+}
+
 export type GeminiStage = 'glossary' | 'translation' | 'onscreen' | 'foreign';
 
 export interface StageEstimate {
@@ -403,7 +417,29 @@ export interface StageUsage {
   flex_fallbacks?: number;
 }
 
+export interface ModelUsage extends StageUsage {
+  total_tokens: number;
+}
+
+export interface LocalUsage {
+  model: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens?: number;
+  segments_tagged: number;
+  frames_filtered: number;
+  saved_tokens: number;
+  saved_cost_usd: number;
+}
+
 export interface JobUsage {
-  stages: Partial<Record<GeminiStage, StageUsage>>;
+  stages: Partial<Record<GeminiStage | 'sync', StageUsage>>;
+  models?: Record<string, ModelUsage>;
+  local?: LocalUsage | null;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_thinking_tokens?: number;
+  total_tokens?: number;
   total_cost_usd: number | null;
 }

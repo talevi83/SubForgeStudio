@@ -37,6 +37,7 @@ class AppSettings(BaseModel):
     glossary: GeminiCallSettings
     vision: GeminiCallSettings = Field(description="Reads on-screen text from video frames")
     vision_media_resolution: Literal["low", "medium", "high"] = "medium"
+    cost_saver_mode: bool = False
 
     @model_validator(mode="after")
     def _check_tasks(self):
@@ -68,7 +69,7 @@ def _defaults() -> AppSettings:
     for task, model in configured.items():
         model = resolve_model(model, task)
         calls[task] = GeminiCallSettings(model=model, thinking=_thinking_for(model, task))
-    return AppSettings(**calls)
+    return AppSettings(cost_saver_mode=settings.cost_saver_mode, **calls)
 
 
 def _migrate(raw: dict) -> bool:

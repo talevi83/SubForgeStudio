@@ -3,7 +3,7 @@ import { useJobStore } from '../../store/useJobStore';
 import { useUiStore } from '../../store/useUiStore';
 import { useT } from '../../i18n';
 import { formatClock } from '../../utils/time';
-import { Film, Settings } from 'lucide-react';
+import { Film, Settings, HelpCircle } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
@@ -12,23 +12,31 @@ export const Header: React.FC = () => {
   const t = useT();
 
   const inSettings = view === 'settings';
-  const Icon = inSettings ? Settings : Film;
+  const inHelp = view === 'help';
+  const inSubView = inSettings || inHelp;
+  const Icon = inSettings ? Settings : inHelp ? HelpCircle : Film;
 
   return (
     <header className="h-14 border-b border-line bg-sunken px-6 flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-3 min-w-0">
         <Icon className="w-4 h-4 text-zinc-400 flex-shrink-0" />
         <span className="text-sm font-semibold text-zinc-200 truncate">
-          {inSettings ? t('header.settingsTitle') : activeJob ? activeJob.file_name : t('header.setupTitle')}
+          {inSettings
+            ? t('header.settingsTitle')
+            : inHelp
+            ? t('header.helpTitle')
+            : activeJob
+            ? activeJob.file_name
+            : t('header.setupTitle')}
         </span>
-        {!inSettings && activeJob?.video_duration ? (
+        {!inSubView && activeJob?.video_duration ? (
           <span className="text-xs text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded font-mono-time" dir="ltr">
             {formatClock(activeJob.video_duration)}
           </span>
         ) : null}
       </div>
 
-      {!inSettings && activeJob && (
+      {!inSubView && activeJob && (
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-xs">
             <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-600'}`} />

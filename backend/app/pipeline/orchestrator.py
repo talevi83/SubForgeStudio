@@ -166,6 +166,8 @@ class PipelineOrchestrator:
         self.cancel_flag = threading.Event()
         self._gpu_held = False
         self._segments_saved = False
+        self._prior_usage_dict: Optional[Dict[str, Any]] = None
+        self._ctx: Optional[PipelineContext] = None
         active_pipelines[job_id] = self
 
     # ------------------------------------------------------------------ control
@@ -204,6 +206,11 @@ class PipelineOrchestrator:
                     glossary = json.loads(job.glossary_json)
                 except Exception:
                     pass
+            if job.usage_json:
+                try:
+                    self._prior_usage_dict = json.loads(job.usage_json)
+                except Exception:
+                    self._prior_usage_dict = None
             ctx = PipelineContext(
                 job_id=job.id,
                 video_path=job.video_path,
@@ -257,6 +264,7 @@ class PipelineOrchestrator:
                     for s in job.segments
                 ]
                 self._segments_saved = True
+            self._ctx = ctx
             return ctx
 
     def _stages(self, ctx: PipelineContext) -> List[tuple]:
@@ -295,8 +303,22 @@ class PipelineOrchestrator:
                 session.add(job)
                 session.commit()
 
+    def _current_usage(self, ctx: Optional[PipelineContext] = None) -> Optional[Dict[str, Any]]:
+        c = ctx if ctx is not None else self._ctx
+        tracker = getattr(c, "usage", None) if c is not None else None
+        total = UsageTracker()
+        if self._prior_usage_dict:
+            total.merge_dict(self._prior_usage_dict)
+        if tracker is not None and hasattr(tracker, "to_dict"):
+            total.merge_dict(tracker.to_dict())
+        return total.to_dict() if total.has_activity() else None
+
     async def _broadcast(self, payload: Dict[str, Any]) -> None:
         payload.setdefault("job_id", self.job_id)
+        if "usage" not in payload:
+            u = self._current_usage()
+            if u is not None:
+                payload["usage"] = u
         await ws_manager.broadcast(self.job_id, payload)
 
     async def _stop_frame_sampling(self, ctx: Optional[PipelineContext]) -> None:
@@ -315,20 +337,16 @@ class PipelineOrchestrator:
             await asyncio.gather(task, return_exceptions=True)
 
     def _persist_usage(self, ctx: Optional[PipelineContext]) -> None:
-        """Add this run's Gemini usage to the job's running total (also for failed/cancelled runs)."""
-        tracker = getattr(ctx, "usage", None) if ctx is not None else None
-        if not tracker or not tracker.stages:
+        """Persist this run's accumulated Gemini + local AI usage to the job (idempotent)."""
+        merged = self._current_usage(ctx)
+        if not merged:
             return
         try:
             with Session(engine) as session:
                 job = session.get(Job, self.job_id)
                 if not job:
                     return
-                total = UsageTracker()
-                if job.usage_json:
-                    total.merge_dict(json.loads(job.usage_json))
-                total.merge_dict(tracker.to_dict())
-                job.usage_json = json.dumps(total.to_dict())
+                job.usage_json = json.dumps(merged)
                 session.add(job)
                 session.commit()
         except Exception as e:  # never break the pipeline over bookkeeping
@@ -493,6 +511,16 @@ class PipelineOrchestrator:
                         ctx.burned_task = asyncio.ensure_future(
                             detect_burned_subtitles(ctx.video_path, ctx.cancel_flag, settings.sync_burned_in_fps))
                 elif stage_status == JobStatus.TRANSCRIBING:
+                    try:
+                        from app.core.user_settings import load_settings
+
+                        if load_settings().cost_saver_mode:
+                            transcriber = getattr(stage, "_last_transcriber", None) or getattr(stage, "_transcriber", None)
+                            unload = getattr(transcriber, "unload_model", None)
+                            if callable(unload):
+                                unload()
+                    except Exception as e:
+                        logger.debug(f"Could not unload Whisper model after transcription: {e}")
                     self._release_gpu()
                     if self.mode != "sync":  # syncing still needs the audio for voice detection
                         self._delete_audio()
@@ -534,6 +562,7 @@ class PipelineOrchestrator:
                        if switched else "")
                 )
             warning = " ".join(warnings) or None
+            self._persist_usage(ctx)
             self._update_job(
                 status=JobStatus.COMPLETED,
                 current_stage="COMPLETED",
@@ -631,6 +660,13 @@ class PipelineOrchestrator:
                         f"out {st.output_tokens}, thinking {st.thinking_tokens}, cost {cost}, "
                         f"Flex {st.flex_requests}, Flex->Standard {st.flex_fallbacks}"
                     )
+                loc = getattr(ctx.usage, "local", None)
+                if loc is not None and (loc.requests > 0 or loc.saved_tokens > 0 or loc.frames_filtered > 0):
+                    logger.info(
+                        f"Local AI & Cost-Saver: model {loc.model or 'local'}, {loc.requests} local query(s), "
+                        f"local tokens {loc.input_tokens + loc.output_tokens}, frames filtered {loc.frames_filtered}, "
+                        f"saved {loc.saved_tokens} cloud tokens (~${loc.saved_cost_usd:.4f})"
+                    )
             logger.info(f"===== Job {self.job_id}: end =====")
         except Exception as e:
             logger.warning(f"Could not log the job summary: {e}")
@@ -674,6 +710,7 @@ class PipelineOrchestrator:
             if overall_pct - last_db_write[0] >= 2:
                 last_db_write[0] = overall_pct
                 self._update_job(progress_percent=overall_pct, speed_factor=speed, eta_seconds=eta)
+                self._persist_usage(self._ctx)
             await self._broadcast(payload)
 
         return _on_stage_progress

@@ -3,7 +3,7 @@ import { useJobStore } from '../../store/useJobStore';
 import { useUiStore } from '../../store/useUiStore';
 import { useT, formatUsd } from '../../i18n';
 import { isActiveStatus } from '../../types';
-import { Film, PlusCircle, Cpu, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, Settings } from 'lucide-react';
+import { Film, PlusCircle, Cpu, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, Settings, HelpCircle } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const jobs = useJobStore((s) => s.jobs);
@@ -200,6 +200,19 @@ export const Sidebar: React.FC = () => {
             {isGeminiReady ? t('sidebar.geminiActive') : t('sidebar.geminiNoKey')}
           </span>
         </div>
+
+        <button
+          onClick={() => setView(view === 'help' ? 'studio' : 'help')}
+          data-testid="sidebar-help-btn"
+          className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+            view === 'help'
+              ? 'bg-indigo-600/15 border-indigo-500/50 text-indigo-300'
+              : 'bg-raised border-line text-zinc-300 hover:border-zinc-600'
+          }`}
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
+          {t('sidebar.help')}
+        </button>
 
         <button
           onClick={() => setView(view === 'settings' ? 'studio' : 'settings')}

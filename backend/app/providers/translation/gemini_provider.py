@@ -330,13 +330,8 @@ class GeminiTranslator(BaseTranslator):
         context = context_segments or segments
         position = {seg.index: pos for pos, seg in enumerate(context)}
         total_segments = len(segments)
-        system_prompt = build_subtitle_system_prompt(
-            source_lang=source_lang,
-            target_lang=target_lang,
-            context_notes=context_notes,
-            max_chars_per_line=self.max_chars_per_line,
-            glossary=glossary,
-        )
+        from app.providers.translation.glossary_pruner import prune_glossary_for_batch
+
         do_rtl = apply_rtl and is_rtl(target_lang)
 
         for start_idx in range(0, total_segments, self.batch_size):
@@ -347,6 +342,29 @@ class GeminiTranslator(BaseTranslator):
             last_pos = position.get(current_batch[-1].index, len(context) - 1)
             prev_context = context[max(0, first_pos - self.prev_context_size):first_pos]
             lookahead_context = context[last_pos + 1:last_pos + 1 + self.lookahead_size]
+
+            batch_glossary = prune_glossary_for_batch(
+                glossary=glossary,
+                batch_texts=[s.original_text for s in current_batch],
+                previous_context=[s.original_text for s in prev_context],
+                lookahead_context=[s.original_text for s in lookahead_context],
+            )
+            if glossary and batch_glossary and self.usage is not None and hasattr(self.usage, "record_local_savings"):
+                from app.core.model_catalog import request_cost
+
+                saved_chars = max(0, len(format_glossary(glossary)) - len(format_glossary(batch_glossary)))
+                saved_toks = saved_chars // 4
+                if saved_toks > 0:
+                    saved_cost = request_cost(self.model_name, saved_toks, 0, flex=self.flex) or 0.0
+                    self.usage.record_local_savings(saved_tokens=saved_toks, saved_cost_usd=saved_cost)
+
+            system_prompt = build_subtitle_system_prompt(
+                source_lang=source_lang,
+                target_lang=target_lang,
+                context_notes=context_notes,
+                max_chars_per_line=self.max_chars_per_line,
+                glossary=batch_glossary,
+            )
 
             try:
                 await self._translate_single_batch(

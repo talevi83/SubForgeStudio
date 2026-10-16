@@ -24,6 +24,7 @@ class EstimateRequest(BaseModel):
     detect_onscreen_text: bool = False
     has_forced_track: bool = False
     sync_lines: int = 0          # "sync existing subtitles": lines in the file (Gemini line matching)
+    cost_saver_mode: Optional[bool] = None
     # Preview unsaved choices from the Settings screen
     settings: Optional[AppSettings] = None
 
@@ -47,11 +48,13 @@ def estimate(req: EstimateRequest):
     from app.providers.translation.gemini_provider import build_subtitle_system_prompt
 
     prompt_tokens = len(build_subtitle_system_prompt("English", "Hebrew")) // 3
+    chosen = req.settings or load_settings()
+    saver = req.cost_saver_mode if req.cost_saver_mode is not None else chosen.cost_saver_mode
     return estimate_job_cost(
         duration_seconds=req.duration_seconds,
         enable_translation=req.enable_translation,
         detect_onscreen_text=req.detect_onscreen_text,
-        app_settings=req.settings or load_settings(),
+        app_settings=chosen,
         glossary_pass=settings.gemini_glossary_pass,
         translation_batch_size=settings.gemini_batch_size,
         system_prompt_tokens=prompt_tokens,
@@ -60,6 +63,7 @@ def estimate(req: EstimateRequest):
         vision_batch_size=settings.onscreen_batch_size,
         has_forced_track=req.has_forced_track,
         sync_lines=req.sync_lines,
+        cost_saver_mode=saver,
     )
 
 
@@ -141,3 +145,23 @@ def _probe_png(width: int = 32, height: int = 32) -> bytes:
             + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(rows))
             + chunk(b"IEND", b""))
+
+
+class OllamaSetupRequest(BaseModel):
+    model: Optional[str] = None
+
+
+@router.get("/ollama/status")
+async def ollama_status():
+    from app.core.ollama_setup import get_ollama_status
+
+    return await get_ollama_status()
+
+
+@router.post("/ollama/setup")
+async def ollama_setup(req: Optional[OllamaSetupRequest] = None):
+    from app.core.ollama_setup import RECOMMENDED_LOCAL_MODEL, start_ollama_setup
+
+    model = (req.model if req and req.model else RECOMMENDED_LOCAL_MODEL).strip()
+    return await start_ollama_setup(model=model)
+

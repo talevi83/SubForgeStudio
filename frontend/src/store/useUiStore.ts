@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type Language = 'en' | 'he';
 export type Theme = 'dark' | 'light';
-export type View = 'studio' | 'settings';
+export type View = 'studio' | 'settings' | 'help';
 
 const STORAGE_KEY = 'subforge.ui';
 

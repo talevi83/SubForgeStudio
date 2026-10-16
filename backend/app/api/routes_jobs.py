@@ -80,7 +80,16 @@ def _job_to_response(
     usage = None
     if job.usage_json:
         try:
-            usage = json.loads(job.usage_json)
+            raw_usage = json.loads(job.usage_json)
+            if isinstance(raw_usage, dict):
+                if "models" not in raw_usage or "local" not in raw_usage:
+                    from app.core.model_catalog import UsageTracker
+
+                    tracker = UsageTracker()
+                    tracker.merge_dict(raw_usage)
+                    usage = tracker.to_dict()
+                else:
+                    usage = raw_usage
         except Exception:
             pass
 

@@ -125,6 +125,13 @@ def _job_log_header(job: Job) -> str:
                     f"out {st.get('output_tokens')}, thinking {st.get('thinking_tokens')}, cost {st.get('cost_usd')}, "
                     f"Flex {st.get('flex_requests', 0)}, Flex->Standard {st.get('flex_fallbacks', 0)}"
                 )
+            loc = usage.get("local")
+            if isinstance(loc, dict) and (loc.get("requests") or loc.get("saved_tokens") or loc.get("frames_filtered")):
+                lines.append(
+                    f"  Local AI & Cost-Saver: model {loc.get('model') or 'local'}, "
+                    f"{loc.get('requests', 0)} local query(s), saved {loc.get('saved_tokens', 0)} tokens "
+                    f"(~${loc.get('saved_cost_usd', 0.0):.4f})"
+                )
         except ValueError:
             pass
     try:

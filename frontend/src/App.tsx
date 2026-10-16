@@ -15,6 +15,7 @@ import { VideoSyncPlayer } from './components/studio/VideoSyncPlayer';
 import { SubtitleTable } from './components/studio/SubtitleTable';
 import { ExportToolbar } from './components/studio/ExportToolbar';
 import { SettingsScreen } from './components/settings/SettingsScreen';
+import { HelpSection } from './components/settings/HelpSection';
 
 const ErrorToast: React.FC = () => {
   const error = useJobStore((s) => s.error);
@@ -59,6 +60,10 @@ export const App: React.FC = () => {
         {view === 'settings' ? (
           <div className="flex-1 overflow-y-auto p-8">
             <SettingsScreen />
+          </div>
+        ) : view === 'help' ? (
+          <div className="flex-1 overflow-y-auto p-8">
+            <HelpSection />
           </div>
         ) : activeJob ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

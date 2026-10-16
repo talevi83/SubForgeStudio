@@ -103,6 +103,8 @@ export const PipelineConfig: React.FC = () => {
           detect_onscreen_text: pipelineConfig.detect_onscreen_text,
           has_forced_track: !!forcedTrack,
           sync_lines: syncGeminiLines,
+          cost_saver_mode: appSettings?.cost_saver_mode,
+          settings: appSettings,
         }
       : null
   );

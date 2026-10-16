@@ -123,7 +123,7 @@ def test_estimate_endpoint(client: TestClient):
     assert set(est["stages"]) == {"glossary", "translation", "onscreen", "foreign"}
     assert est["stages"]["foreign"]["frames"] == 540  # 10% of 45 min, 2 crops per second
     assert est["segments"] == 630
-    assert est["stages"]["translation"]["requests"] == 21
+    assert est["stages"]["translation"]["requests"] == 11
     assert est["stages"]["onscreen"]["frames"] == 360  # capped by ONSCREEN_MAX_FRAMES
     assert 0 < est["total_cost_usd"] < 1
     assert est["total_cost_usd"] == pytest.approx(sum(s["cost_usd"] for s in est["stages"].values()), abs=1e-3)

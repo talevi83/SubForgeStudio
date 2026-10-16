@@ -176,8 +176,16 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
     out_dir.mkdir(parents=True, exist_ok=True)
     thumbs_path = out_dir / "thumbs.raw"
 
+    # Use GPU hardware decoding (-hwaccel auto -> NVDEC/D3D11VA) whenever available, and for
+    # real episodes (>= 60s) discard non-keyframe packets at the demuxer so high-FPS / AV1
+    # videos do not decode 99% of intermediate frames on CPU just to drop them in fps=1/2.
+    input_flags = ["-hwaccel", "auto"]
+    if ctx.duration <= 0 or ctx.duration >= 60.0:
+        input_flags += ["-discard", "nokey"]
+
     command = [
         get_ffmpeg_bin(), "-v", "error", "-nostats", "-y",
+        *input_flags,
         "-i", str(Path(ctx.video_path).resolve()),
         "-filter_complex",
         f"[0:v:0]fps=1/{interval},split=2[big][small];"
@@ -484,6 +492,7 @@ async def sample_subtitle_crops(
     out_dir.mkdir(parents=True, exist_ok=True)
     await _run_cancellable([
         get_ffmpeg_bin(), "-v", "error", "-nostats", "-y",
+        "-hwaccel", "auto",
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
         "-i", str(Path(ctx.video_path).resolve()),
         "-map", "0:v:0", "-an", "-sn",
@@ -639,11 +648,69 @@ class OnScreenTextStage(PipelineStage):
         if ctx.frame_task is None:
             ctx.frame_task = asyncio.ensure_future(sample_frames(ctx))
         await progress(5.0, "Sampling video frames...")
-        frames: List[Frame] = await ctx.frame_task
+        task = asyncio.ensure_future(ctx.frame_task)
+        out_dir = frames_dir(ctx.job_id)
+        expected = max(1, int((ctx.duration or 0.0) / max(0.5, settings.onscreen_frame_interval)))
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                ctx.raise_if_cancelled()
+                if out_dir.exists():
+                    written = sum(1 for _ in out_dir.glob("f_*.jpg"))
+                    if written > 0:
+                        pct = min(14.0, 5.0 + 9.0 * min(1.0, written / expected))
+                        await progress(pct, f"Sampling video frames... ({written}/{expected})")
+        frames: List[Frame] = await task
         ctx.raise_if_cancelled()
 
         speech = [(s.start_time, s.end_time) for s in ctx.raw_segments]
         selected = select_frames(frames, speech, settings.onscreen_max_frames)
+
+        from app.core.user_settings import load_settings
+
+        app_settings = load_settings()
+        if app_settings.cost_saver_mode and selected:
+            from math import ceil
+            from app.core.model_catalog import estimated_thinking_tokens, image_tokens, request_cost
+            from app.pipeline.onscreen_prefilter import prefilter_frames
+
+            before_count = len(selected)
+            clusters = await prefilter_frames(selected)
+            after_count = len(clusters)
+            filtered_frames = max(0, before_count - after_count)
+            if filtered_frames > 0 and ctx.usage is not None and hasattr(ctx.usage, "record_local_savings"):
+                v = app_settings.vision
+                img_tok = image_tokens(v.model, app_settings.vision_media_resolution)
+                b_size = max(1, settings.onscreen_batch_size)
+                saved_batches = max(0, ceil(before_count / b_size) - (ceil(after_count / b_size) if after_count else 0))
+                think_tok = estimated_thinking_tokens(v.model, v.thinking)
+                saved_in = filtered_frames * img_tok + saved_batches * 450
+                saved_out = saved_batches * (150 + think_tok)
+                saved_cost = request_cost(v.model, saved_in, saved_out, flex=getattr(v, "flex", False)) or 0.0
+                ctx.usage.record_local_savings(
+                    saved_tokens=saved_in + saved_out,
+                    frames_filtered=filtered_frames,
+                    saved_cost_usd=saved_cost,
+                )
+            logger.info(
+                f"Cost-Saver frame pre-filter: {before_count} selected -> {after_count} cluster(s) sent to Gemini"
+            )
+            selected = [
+                Frame(
+                    time=c.start_time,
+                    path=c.representative_path,
+                    change=1.0,
+                    static_until=c.end_time,
+                )
+                for c in clusters
+            ]
+            if not selected:
+                ctx.onscreen_segments = []
+                await progress(65.0, f"Filtered {filtered_frames} blank frames locally")
+                return
+
         await progress(15.0, f"Scanning {len(selected)} of {len(frames)} frames for on-screen text...")
         done = 0
 

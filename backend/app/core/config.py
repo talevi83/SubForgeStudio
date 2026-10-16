@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     # Gemini 2.5 models are only served to keys that used them before (Google, 2026); current defaults:
     gemini_model: str = "gemini-3.8-flash"
-    gemini_batch_size: int = 30
+    gemini_batch_size: int = 60
     # Models offered in the UI when the live model list can't be fetched from the API
     gemini_models: List[str] = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
     # Model used to read on-screen text from sampled video frames
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     onscreen_batch_size: int = 12
     # Run a one-off glossary pass (characters, genders, terms) before translating
     gemini_glossary_pass: bool = True
+    # Local PC pre-processing (frame pre-filtering, Whisper VRAM unload, local gender pre-tagging)
+    cost_saver_mode: bool = False
 
     # Whisper Settings
     whisper_default_model: str = "medium"

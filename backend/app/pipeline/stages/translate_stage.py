@@ -175,9 +175,41 @@ class TranslateStage(PipelineStage):
                 glossary_error = getattr(translator, "last_glossary_error", None)
                 if ctx.glossary is None and glossary_error:
                     ctx.warnings.append(f"Glossary pass skipped — {glossary_error[:300]}")
+                if on_progress:
+                    await on_progress(6.0, None, None, "Glossary analysis complete", None)
                 ctx.raise_if_cancelled()
             elif ctx.glossary is None and known:
                 ctx.glossary = known
+
+            effective_notes = _notes_with_hint(ctx.context_notes, ctx.translation_hint, to_translate)
+            try:
+                from app.core.user_settings import load_settings
+
+                if load_settings().cost_saver_mode:
+                    from app.pipeline.gender_pretag import (
+                        format_hints_for_context_notes,
+                        is_gendered_target_language,
+                        pretag_gender_hints,
+                    )
+
+                    if is_gendered_target_language(target_lang):
+                        async def _on_local_batch() -> None:
+                            if on_progress:
+                                await on_progress(8.0, None, None, "Pre-tagging speaker gender with local AI...", None)
+
+                        local_hints = await pretag_gender_hints(
+                            to_translate,
+                            target_lang=target_lang,
+                            glossary=ctx.glossary,
+                            usage=ctx.usage,
+                            cloud_model=getattr(translator, "model_name", None),
+                            on_batch=_on_local_batch,
+                        )
+                        if local_hints:
+                            hint_block = format_hints_for_context_notes(local_hints)
+                            effective_notes = f"{effective_notes}\n\n{hint_block}".strip() if effective_notes else hint_block
+            except Exception as e:
+                logger.debug(f"Local gender pre-tagging skipped: {e}")
 
             if on_progress:
                 await on_progress(10.0, None, None, f"Translating {len(to_translate)} segments to {target_lang}...", None)
@@ -186,7 +218,7 @@ class TranslateStage(PipelineStage):
                 segments=to_translate,
                 source_lang=source_lang,
                 target_lang=target_lang,
-                context_notes=_notes_with_hint(ctx.context_notes, ctx.translation_hint, to_translate),
+                context_notes=effective_notes,
                 apply_rtl=False,  # stored clean; RTL marks are added at export time
                 on_batch_complete=_on_batch_complete,
                 glossary=ctx.glossary,

@@ -125,17 +125,28 @@ class FasterWhisperTranscriber(BaseTranscriber):
         self.vad_filter = vad_filter or comms_boost
         self.batch_size = settings.whisper_batch_size if batch_size is None else batch_size
         self.detected_language: Optional[str] = None
+        self._model: Optional[WhisperModel] = None
 
     def _get_model(self) -> WhisperModel:
         """Load (or reuse) the model, falling back to CPU INT8 if CUDA init fails."""
         try:
-            return _load_model(self.model_name, self.device, self.compute_type)
+            self._model = _load_model(self.model_name, self.device, self.compute_type)
+            return self._model
         except Exception as e:
             if self.device != "cuda":
                 raise
             logger.warning(f"Failed to initialize Faster-Whisper on CUDA ({e}). Falling back to CPU INT8...")
             self.device, self.compute_type = "cpu", "int8"
-            return _load_model(self.model_name, "cpu", "int8")
+            self._model = _load_model(self.model_name, "cpu", "int8")
+            return self._model
+
+    def unload_model(self) -> None:
+        """Free the loaded Whisper model from GPU/CPU memory."""
+        with _model_lock:
+            self._model = None
+            _model_cache.clear()
+        gc.collect()
+        logger.info("Unloaded Faster-Whisper model to free GPU/CPU memory")
 
     def _use_batched(self) -> bool:
         # Batched inference needs VAD to cut the audio into chunks and only pays off on GPU.

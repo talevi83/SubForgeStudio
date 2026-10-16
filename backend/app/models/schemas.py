@@ -255,6 +255,7 @@ class WebSocketEventPayload(BaseModel):
     segment: Optional[SubtitleSegmentSchema] = None
     segments_batch: Optional[List[SubtitleSegmentSchema]] = None
     message: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
 
 
 class SystemInfoResponse(BaseModel):

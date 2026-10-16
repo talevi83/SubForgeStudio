@@ -129,6 +129,17 @@ class TranscribeStage(PipelineStage):
             except Exception as e:
                 logger.warning(f"Aligning word starts failed: {e}", exc_info=True)
 
+        self._last_transcriber = transcriber
+        try:
+            from app.core.user_settings import load_settings
+
+            if load_settings().cost_saver_mode:
+                unload = getattr(transcriber, "unload_model", None)
+                if callable(unload):
+                    unload()
+        except Exception as e:
+            logger.debug(f"Could not check cost_saver_mode after transcription: {e}")
+
         if on_progress:
             lang = f" (language: {ctx.detected_language})" if ctx.detected_language else ""
             await on_progress(100.0, None, None, f"Transcribed {len(ctx.raw_segments)} raw segments{lang}", None)

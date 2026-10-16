@@ -36,3 +36,7 @@ class BaseTranscriber(ABC):
     ) -> Tuple[List[Dict[str, Any]], List[RawSegment]]:
         """Find passages in other languages; returns (spans, fallback segments). Optional."""
         return [], []
+
+    def unload_model(self) -> None:
+        """Free the loaded transcription model from GPU/CPU memory."""
+        return None
