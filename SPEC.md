@@ -46,8 +46,9 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 | Configuration | **pydantic-settings** (`.env`) + `storage/settings.json` | First-run defaults vs. user choices made in Settings |
 | Speech-to-text | **faster-whisper** (CTranslate2) + **Silero VAD** | Local transcription, word timestamps, speech maps, language detection |
 | GPU runtime | **NVIDIA cuBLAS / cuDNN wheels** (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) | CUDA FP16 without a system CUDA install; CPU INT8 fallback |
-| Media | **ffmpeg / ffprobe** (async subprocesses) | Probing, audio extraction and filtering, frame sampling, subtitle-track extraction |
+| Media | **ffmpeg / ffprobe** (async subprocesses) | Probing, audio extraction and filtering, frame sampling (GPU-accelerated), subtitle-track extraction |
 | AI | **Google Gemini** via `google-genai` | Glossary pass, translation, on-screen text (vision), sync line matching, speaker gender detection |
+| Local AI & Optimization | **Ollama** (local LLM), **Pillow** (edge & dHash) | Local gender pre-tagging, frame deduplication & blank-frame pruning in Cost-Saver Mode |
 | Frontend | **React 19, TypeScript 6, Vite 8, Tailwind CSS 4, Zustand 5, lucide-react** | Single-page studio; typed REST client; WebSocket listener inside the job store |
 | Lint / build | **oxlint**, `tsc -b` + `vite build` | Frontend must pass both with zero warnings |
 | Desktop shell | **pywebview** (Edge WebView2), **pystray + Pillow** (tray icon) | Own app window and tray menu (`packaging/launcher.py`) |
@@ -60,7 +61,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 
 ```text
  ┌──────────────────────────── Browser tab  or  pywebview window (WebView2) ───────────────────────────┐
- │  React SPA:  Ingest ─ Live monitor ─ Studio (player + table) ─ Settings                               │
+ │  React SPA:  Ingest ─ Live monitor ─ Studio (player + table) ─ Settings ─ Help & Q&A                 │
  │  Zustand stores (jobs, settings, ui)   typed REST client (services/api.ts)   WebSocket listener       │
  └───────────────▲──────────────────────────────────────┬───────────────────────────────────────────────┘
                  │ REST /api/*   (Range streaming for video)      │ WS /ws/jobs/{id}: progress, segments
@@ -78,7 +79,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
  │   Providers:  BaseTranscriber ── FasterWhisperTranscriber                                             │
  │               BaseTranslator  ── GeminiTranslator (Flex wrapper)  ·  NoopTranslator                   │
  └────────┬──────────────────────────┬────────────────────────────┬───────────────────────────┬─────────┘
-          │ SQLite (SQLModel)        │ ffmpeg / ffprobe           │ faster-whisper (GPU/CPU)  │ Gemini API
+          │ SQLite (SQLModel)        │ ffmpeg / ffprobe           │ faster-whisper (GPU/CPU)  │ Gemini API / Ollama
           ▼                          ▼                            ▼                           ▼
    storage/subforge.db        audio, frames, tracks         models in the HF cache        text + frames only
 ```
@@ -89,9 +90,9 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 |---|---|
 | `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware, routers, WebSocket endpoint, static hosting of `SUBFORGE_FRONTEND_DIST` / `frontend/dist` |
 | `api/` | One router per area (see §6): `routes_system`, `routes_media`, `routes_jobs`, `routes_export`, `routes_settings`, `routes_glossary`, `routes_storage` |
-| `core/` | `config` (settings), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `compat` (PyAV/faster-whisper shim) |
+| `core/` | `config` (settings), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `ollama_setup` (Ollama lifecycle/install), `compat` (PyAV/faster-whisper shim) |
 | `models/` | `db_models` (tables, `JobStatus`, `SegmentType`), `schemas` (Pydantic request/response models) |
-| `pipeline/` | `orchestrator`, `context` (state passed between stages), `stages/*`, and the algorithms below |
+| `pipeline/` | `orchestrator`, `context` (state passed between stages), `stages/*`, `onscreen_prefilter` (edge & dHash frame filter), `gender_pretag` (local Ollama pre-tagger), `glossary_pruner` (batch glossary pruner), and the algorithms below |
 | `providers/` | `transcription/` (`BaseTranscriber`, faster-whisper), `translation/` (`BaseTranslator`, Gemini, Noop), `gemini_calls` (Flex tier wrapper) |
 | `utils/` | SRT/VTT formatter, RTL fixer, subtitle file parser, language helpers, text-break rules |
 
@@ -101,10 +102,10 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 |---|---|
 | **Probe** (`PROBING`) | `ffprobe` the file: duration, audio streams (the user picks one), embedded subtitle tracks |
 | **Audio** (`EXTRACTING_AUDIO`) | ffmpeg → mono 16 kHz WAV. Surround tracks are downmixed with emphasis on the centre (dialogue) channel; *Comms boost* adds a speech-band chain (band-pass, FFT denoise, compressor, `dynaudnorm`) |
-| **Transcribe** (`TRANSCRIBING`) | faster-whisper with Silero VAD and word timestamps; batched GPU inference with fallback to sequential on out-of-memory; real mid-file cancellation; model stays loaded between jobs. Then: *start alignment* (`word_snap`), *missed-speech recovery* (`gap_recovery`), *foreign-speech detection* (`foreign_speech`) |
-| **On-screen text** (`SCANNING_ONSCREEN`, optional) | Uses an embedded forced/"signs" subtitle track if present; otherwise samples frames in the background while Whisper runs (prioritising speech gaps and scene cuts) and asks Gemini Vision for narrative text only. Also reads burned-in subtitles for foreign passages |
+| **Transcribe** (`TRANSCRIBING`) | faster-whisper with Silero VAD and word timestamps; batched GPU inference with fallback to sequential on out-of-memory; real mid-file cancellation; model stays loaded between jobs. Then: *start alignment* (`word_snap`), *missed-speech recovery* (`gap_recovery`), *foreign-speech detection* (`foreign_speech`). In Cost-Saver Mode, Whisper is unallocated from GPU memory immediately after completion to free VRAM |
+| **On-screen text** (`SCANNING_ONSCREEN`, optional) | Uses an embedded forced/"signs" subtitle track if present; otherwise samples frames in the background while Whisper runs (prioritising speech gaps and scene cuts). Frame extraction is GPU-accelerated (`-hwaccel auto` and `-discard nokey`). In Cost-Saver Mode, frames are pre-filtered locally (Pillow edge detection + 64-bit dHash) before calling Gemini Vision. Also reads burned-in subtitles for foreign passages |
 | **Refine** (`REFINING`) | Flatten words → remove repetition loops → re-group by sentence → split at clause boundaries (42 chars/line, 2 lines) → timing pass (no overlaps, ≥ 2-frame gaps, target reading speed) → merge on-screen cues into the timeline |
-| **Translate** (`TRANSLATING`, optional) | Glossary pass over the whole transcript, then batched translation with sliding context and strict 1-to-1 index mapping (structured output); per-line retry; failures flagged, never left silently untranslated |
+| **Translate** (`TRANSLATING`, optional) | Glossary pass over the whole transcript, then batched translation (batch size 60) with sliding context and strict 1-to-1 index mapping (structured output); per-line retry; failures flagged. Dynamic glossary pruning per batch. In Cost-Saver Mode, pre-tags ambiguous pronouns using local Ollama |
 | **Sync** (`SYNCING`, sync jobs) | Re-times the user's subtitle file, see §4.4 |
 
 A job moves through `IDLE/QUEUED → … → COMPLETED | FAILED | CANCELLED`. `QUEUED` is the wait for the GPU slot
@@ -165,6 +166,15 @@ Input: video + the user's own SRT / WebVTT / ASS (`utils/subtitle_parser.py` rea
 ### 4.5 Editing operations
 All edits go through the REST API and renumber lines transactionally: single/bulk patch, **add a line** (`POST /segments`, overlap → `409`, timecode `HH:MM:SS,mmm` shared with the UI), **move** (`/segments/move`, text moves and time slots stay, only the affected span is re-checked), **re-time**, delete project.
 
+### 4.6 Cost-Saver Mode & Local AI Offloading (`cost_saver_mode`)
+- **Local frame pre-filtering (`onscreen_prefilter.py`):** Pillow-based edge detection and 64-bit difference hashing (`dHash`) filter out blank/textless frames and deduplicate consecutive identical title cards before calling Gemini Vision, pruning ~75–80% of Vision image tokens.
+- **Whisper GPU VRAM unloading:** Faster-Whisper model is cleanly unallocated from GPU memory immediately after transcription completes, freeing VRAM for local LLMs or other GPU tasks on 8 GB cards.
+- **Local gender pre-tagging (`gender_pretag.py`):** Auto-detects local Ollama (e.g. `qwen2.5:7b`) and pre-tags ambiguous pronoun lines (`you`, `I am`) with `[Speaker: M/F, To: M/F]` hints locally for Hebrew/Arabic translation, cutting cloud token overhead. Skips with zero delay if Ollama is absent.
+- **Ollama setup & lifecycle management (`core/ollama_setup.py`):** Live status polling (`GET /api/settings/ollama/status`) and background one-click automated setup (`POST /api/settings/ollama/setup`) which downloads the installer on Windows, launches the daemon, and pulls `qwen2.5:7b`.
+- **Dynamic glossary pruning (`glossary_pruner.py`):** Prunes full series or project glossaries down to only the characters and terms appearing in each 60-line translation batch, reducing input token overhead.
+- **Live & post-run token breakdown:** Tracks input, output, thinking tokens per Gemini model, local Ollama queries handled, and frames/tokens saved locally.
+- **Hardware-accelerated frame sampling:** FFmpeg sampling uses `-hwaccel auto` (NVDEC / D3D11VA) and `-discard nokey` on full video files in both OCR scanning and burned-in subtitle detection (`sync_burned.py`), reducing 36-min video sampling from 20+ min to ~29 seconds.
+
 ---
 
 ## 5. Data model
@@ -198,7 +208,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 | Editing | `POST …/segments`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
 | Translation tools | `PUT …/glossary`, `POST …/detect-speakers`, `GET …/qa`, `GET /api/glossary-profiles` |
 | Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log` |
-| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check` |
+| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
 | Storage | `GET /api/storage`, `POST /api/storage/clean` |
 | Live | `WS /ws/jobs/{job_id}` |
 
@@ -206,8 +216,8 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 
 ## 7. Frontend
 
-- **Structure:** `components/` → `ingest/` (media drop, stream selector, mode switch *Create subtitles / Sync my subtitles*, pipeline config, sync options), `monitor/` (live pipeline bar, stream feed), `studio/` (video player, subtitle table/rows, export toolbar, glossary / row-translate / insert-line dialogs), `settings/`, `layout/`.
-- **State:** Zustand — `useJobStore` (jobs, active job, segments, WebSocket, ingest mode, sync file), `useSettingsStore`, `useUiStore` (language, theme, view; persisted to `localStorage`, reflected on `<html>` for CSS and RTL layout).
+- **Structure:** `components/` → `ingest/` (media drop, stream selector, mode switch *Create subtitles / Sync my subtitles*, pipeline config, sync options), `monitor/` (live pipeline bar, stream feed, token & local AI savings monitor), `studio/` (video player, subtitle table/rows, export toolbar, glossary / row-translate / insert-line dialogs), `settings/` (AI models, cost-saver toggle & Ollama status/setup, storage cleanup), `layout/` (Sidebar with Studio, Settings, Help buttons; Header), `HelpSection` (standalone view with 4-step workflow guide and interactive Q&A accordion).
+- **State:** Zustand — `useJobStore` (jobs, active job, segments, WebSocket, ingest mode, sync file), `useSettingsStore`, `useUiStore` (language, theme, view: `'studio' | 'settings' | 'help'`; persisted to `localStorage`, reflected on `<html>` for CSS and RTL layout).
 - **Contracts:** `types/index.ts` mirrors the backend schemas; `services/api.ts` is the only REST client.
 - **i18n:** `i18n/en.ts` + `i18n/he.ts`; message keys are typed, so a missing translation fails the TypeScript build. Hebrew switches the whole layout to RTL (`dir`), with explicit `dir` only around genuinely left-to-right fragments.
 - **Player:** HTML5 video with Range seeking and a dynamic WebVTT blob track, so edits show on the video immediately. Shortcuts: `Space`, `←/→` (±2 s, `Shift` ±0.1 s), `[` `]` (set start/end to playhead), `N` (add line), `F` (fullscreen).

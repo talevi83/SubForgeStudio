@@ -25,9 +25,9 @@
    - Timing pass: no overlaps, ≥2-frame gaps, display time extended toward a target reading speed (`TARGET_CPS`), short gaps closed to avoid flicker.
    - Reading speed (CPS) badges, plus an "Only problems" filter in the editor.
 
-4. **Context-Aware Gemini Subtitle Translation:**
-   - One glossary pass over the whole transcript (characters, gender, terminology) feeds every batch — better Hebrew gender agreement and consistent names.
-   - Batch translation with sliding context (`previous_context` + `lookahead_context`) and strict 1-to-1 index mapping via structured output.
+4. **Context-Aware Gemini Subtitle Translation (Batch 60 + Dynamic Glossary Pruning):**
+   - Default batch size of 60 lines (`GEMINI_BATCH_SIZE=60`) halves translation request roundtrips and cut repeated prompt/thinking token overhead by 50%.
+   - One glossary pass over the whole transcript (characters, gender, terminology) feeds translation, with per-batch dynamic glossary pruning (main cast + characters and terms appearing in the active window) so prompts stay compact without mutating the saved glossary.
    - Missing lines are retried individually; anything that still fails is **flagged**, never silently left in English. "Retranslate failed" / "Retranslate all" (or a different target language) without re-transcribing.
    - Subtitles are saved as soon as they're refined and after every translated batch — nothing is lost if translation fails.
 
@@ -39,30 +39,41 @@
    - Whisper runs with a permissive VAD, relaxed `no_speech`/`log_prob` thresholds and a tactical vocabulary prompt (`initial_prompt` + `hotwords`).
    - Radio-procedure lines ("Copy that, over.", "Do you copy?", "…come in.") are tagged `COMMS` and translated with authentic IDF radio phrasing ("רות", "עבור").
 
-7. **📺 On-Screen Text / Forced Narratives (optional, per job):**
+7. **📺 On-Screen Text & GPU-Accelerated Frame Sampling:**
    - Uses an embedded forced/"signs" text subtitle track when the file has one.
-   - Otherwise samples a frame every 2s (in the background while Whisper runs), prioritises speech gaps and scene cuts, and asks Gemini Vision for narrative text only ("One week later...", "Damascus, Syria", HUD headers, plot-critical signs — not logos, credits or burned-in dialogue).
-   - Repeated detections are merged into one `[bracketed]` `ON_SCREEN` subtitle and woven into the timeline (own entry in silence, or top line above simultaneous dialogue). Translated as Hebrew screen titles, with RTL marks applied at export. Lone short words (HUD/radio labels such as "EAGLE") are dropped, and a sign the camera returns to within 3 minutes is not shown again. Every kept title is listed in the job log.
-   - **Speech in other languages** (e.g. Russian in an English episode): Whisper locks onto one language and drops or garbles such passages. After transcription, Silero VAD + Whisper language detection find passages that are another language (or speech Whisper produced no text for). Those windows are read at 2 frames/s from the bottom third of the picture, and the show's own burned-in subtitles (or a forced track) become `FOREIGN` subtitles with their exact on/off timing — scanning outward while a subtitle is still visible. Without burned-in subtitles, Whisper re-transcribes just that passage in its own language. Gemini translates both as normal dialogue.
+   - Otherwise samples video frames in the background while Whisper transcribes. Sampling is GPU-accelerated (`-hwaccel auto` via NVDEC/D3D11VA) and demuxes only keyframes (`-discard nokey`) on full episodes, completing 36-minute 1440p 60fps AV1/HEVC scans in ~29 seconds instead of 20+ minutes on CPU.
+   - Frames are prioritised at speech gaps and scene cuts, and asked Gemini Vision for narrative text only ("One week later...", "Damascus, Syria", HUD headers, plot-critical signs — not logos, credits or burned-in dialogue).
+   - Repeated detections are merged into one `[bracketed]` `ON_SCREEN` subtitle and woven into the timeline. Lone short words (HUD/radio callsigns like "EAGLE") are dropped, and signs returning within 3 minutes are not repeated.
+   - **Speech in other languages** (e.g. Russian in an English episode): passages in another language are detected, sampled from the bottom third with GPU acceleration, and read from burned-in subtitles (or re-transcribed by Whisper).
 
 8. **Interactive Studio Workspace:**
    - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), seek bar and fullscreen that keeps the subtitle overlay.
    - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `N` add a line at the playhead, `F` fullscreen.
-   - **Add a line by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in the same format the table shows, `HH:MM:SS,mmm` (e.g. `00:12:34,500`; short forms like `12:34,5` work too), or taken from the playhead with one click. The dialog shows the lines before and after, the free gap and the duration, and blocks an overlap with a one-click fix (*Start right after it* / *End right before it* / *Fit into the gap*). Lines are renumbered after adding.
+   - **Add a line by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in the same format the table shows, `HH:MM:SS,mmm` (e.g. `00:12:34,500`; short forms like `12:34,5` work too), or taken from the playhead with one click.
    - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
 9. **⏱ Sync Existing Subtitles:**
    - Choose **Sync my subtitles** on the setup screen, pick the video and a subtitle file you already have (SRT, WebVTT or ASS, in any language and encoding: UTF-8/UTF-16/Windows-1255 Hebrew files are read correctly). The text is never changed, only the timing.
-   - Whisper transcribes the audio and Silero VAD maps the speech. A first local pass matches the rhythm of the lines to the speech: it finds the delay, a different frame rate (25 ↔ 23.976/24 fps and others) and different cuts (a recap or scene that is longer or missing), by cross-correlation plus dynamic programming over per-line offsets.
-   - Each line then snaps to its best evidence:
-     - **Its own words:** a file in the spoken language (English file on English audio) is matched to Whisper's word timestamps locally.
-     - **Gemini:** a file in another language (Hebrew on English audio) is matched line by line to the transcript phrases it translates (optional; uses the *Translation* model from Settings, typically cents per episode).
-     - **Subtitles in the video itself:** an embedded text subtitle track, or subtitles **burned into the picture**, give exact on/off times. Burned-in text is detected locally (no AI) while Whisper runs, and is used only when it fits the speech.
-     - **On-screen titles:** with *Time titles and signs* on, lines that translate a sign or a place/time title take the timing of that text (Gemini Vision scan). Lines the file places at the top (`{\an8}`) are treated as signs.
-     - **Speech rhythm:** everything else starts at the nearest speech onset.
-   - Wrong matches are outvoted by their neighbours, and the file's order is kept without new overlaps. Lines placed with low confidence show up under *Only problems* in the editor.
-   - The result is a normal project: edit, *Re-check timing*, export. A file in another language becomes the translation, with what is said in the audio next to it as the original. A summary shows how the lines were placed (and the frame rate, shift and cuts it found).
+   - Matches speech rhythm (Silero VAD + Whisper word times), embedded/burned-in tracks, and Gemini translation anchors.
+
+10. **💡 Cost-Saver Mode & Local AI Offloading (Optional Toggle):**
+    - **One simple toggle** in Settings (`cost_saver_mode`, off by default to protect weak laptops).
+    - **Local frame pre-filtering:** Pillow-based edge detection and 64-bit difference hashing (`dHash`) filter out blank/textless frames and merge consecutive identical title cards before calling Gemini Vision, saving ~75–80% of Vision image tokens.
+    - **GPU VRAM unloading:** Unloads Faster-Whisper from GPU memory right after transcription completes so 8GB GPUs have free VRAM for local LLMs or system tasks.
+    - **Zero-config local gender pre-tagging (Ollama):** Auto-detects local Ollama (e.g. `qwen2.5:7b`), pre-tags ambiguous pronoun lines (`you`, `I am`) with `[Speaker: M/F, To: M/F]` hints locally for Hebrew/Arabic translation, cutting cloud token overhead. Silently skips with zero delay if Ollama is not installed.
+    - **One-click Ollama setup:** Settings screen includes live Ollama status, one-click automatic installation / daemon startup / model pull (`POST /api/settings/ollama/setup`), and instructions + download links for advanced users.
+
+11. **📊 Live & Post-Run Token & Local AI Savings Summary:**
+    - Live monitoring bar in the studio and final run summary shows:
+      - Breakdown of tokens used per Gemini model (specifying the exact model and input/output/thinking counts).
+      - Local AI queries sent to Ollama and model name.
+      - Tokens and video frames saved locally by Cost-Saver pre-filtering.
+
+12. **❓ Dedicated Help, User Guide & Q&A Screen:**
+    - Dedicated **"Help & Q&A"** button in the sidebar bottom panel opens a comprehensive standalone guide.
+    - 4-step quick-start workflow overview (Media Ingest, Configuration, Live Monitoring, Review & Export).
+    - Interactive FAQ accordion covering Whisper model choices, Comms Boost, Cost-Saver Mode, Hebrew gender rules, Gemini models and Flex mode, timing fixes, and video player codec compatibility.
 
 ---
 
@@ -91,6 +102,13 @@ Open **Settings** (bottom of the sidebar):
 - **Diagnostics** — *Download server log* (`storage/logs/server.log`, rotating 3 × 5 MB). Every project also keeps its own detailed log (`storage/logs/jobs/<job>.log`): settings, each stage with timings, Gemini errors, retries and Flex fallbacks, and a result summary. Download it with the **Log** button in the studio; it is deleted with the project.
   - Flex: after 2 requests in a row fall back to Standard, the rest of the job uses Standard for that model.
 - **Cost estimate** — per-step requests, tokens and dollars for a video of any length, recalculated live as you change models (before saving). The setup screen also shows the estimate for the loaded file.
+- **Cost-Saver Mode & Ollama Local AI** (Settings toggle, default off):
+  - Pre-filters sampled frames locally using Pillow edge detection and 64-bit dHash perceptual hashing, filtering out ~75–80% of textless frames before calling Gemini Vision.
+  - Automatically unloads Faster-Whisper from GPU memory right after transcription to free VRAM for local models.
+  - Automatically pre-tags ambiguous pronouns (`you`, `I am`) using a local Ollama model (e.g. `qwen2.5:7b`), eliminating cloud token overhead for gender disambiguation.
+  - Settings screen features a live Ollama service & model status monitor, a one-click automated setup button (`POST /api/settings/ollama/setup` to install/start/pull), and direct manual links for advanced users.
+- **Live & Post-Run Token & Local AI Savings Breakdown**:
+  - Live studio monitor bar and final run summary display per-model Gemini token usage (input, output, thinking), Ollama local queries handled, and total frames/tokens saved by local pre-filtering.
 
 Prices come from the official Gemini API paid tier (checked October 2026, including promotional prices that end on a set date) and live in `backend/app/core/model_catalog.py` — update that file when Google changes prices. Every job records the **exact** tokens (input, output, thinking) and cost reported by the API per step; the total is shown in the studio header and the project list.
 
@@ -114,7 +132,7 @@ SubsForge Studio/
 │   │   ├── main.py             # FastAPI app: CORS, trusted hosts, routers, WebSocket, serves frontend/dist
 │   │   ├── api/                # Routes: system, media, jobs, export, settings, glossary profiles, storage
 │   │   ├── core/               # Config, SQLite DB, hardware detection, WS manager, model catalog & prices,
-│   │   │                       #   user settings, glossary profiles, job logging, housekeeping, storage cleanup
+│   │   │                       #   user settings, glossary profiles, job logging, housekeeping, storage cleanup, ollama_setup
 │   │   ├── models/             # SQLModel tables & Pydantic schemas
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.py # Runs the stages: GPU queue, cancel, save-as-you-go, recovery after restart
@@ -124,6 +142,9 @@ SubsForge Studio/
 │   │   │   ├── sync_burned.py  # Sync: burned-in subtitle detection (local frame analysis)
 │   │   │   ├── gap_recovery.py # Missed-speech recovery (Whisper without VAD over uncovered audio)
 │   │   │   ├── word_snap.py    # Subtitle start alignment
+│   │   │   ├── onscreen_prefilter.py  # Local frame edge & dHash pre-filter
+│   │   │   ├── gender_pretag.py       # Local Ollama gender pre-tagging
+│   │   │   ├── glossary_pruner.py     # Dynamic glossary pruning per batch
 │   │   │   ├── speech_regions.py, retime.py   # Speech maps, "Re-check timing" and drag-to-reorder
 │   │   │   ├── foreign_speech.py              # Passages in other languages
 │   │   │   ├── speaker_detect.py, qa.py       # Gender detection from frames, quality check
@@ -163,7 +184,7 @@ Interactive docs are at `http://localhost:8000/docs` while the server runs.
 | Editing | `POST /api/jobs/{id}/segments` (add a line), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
 | Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
 | Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
-| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check` |
+| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
 | Storage | `GET /api/storage`, `POST /api/storage/clean` |
 | Live | `WS /ws/jobs/{job_id}` |
 
@@ -213,10 +234,11 @@ Optional settings (defaults shown):
 | `WHISPER_GAP_RECOVERY` | `true` | Missed-speech recovery (see Settings above). |
 | `WHISPER_SNAP_STARTS` | `true` | Subtitle start alignment (see Settings above). |
 | `MAX_CONCURRENT_TRANSCRIPTIONS` | `1` | Jobs allowed on the GPU at once (others wait as *Queued*). |
-| `GEMINI_BATCH_SIZE` | `30` | Subtitle lines per translation request. |
+| `GEMINI_BATCH_SIZE` | `60` | Subtitle lines per translation request. |
 | `GEMINI_GLOSSARY_PASS` | `true` | Build a character/terminology glossary before translating. |
+| `COST_SAVER_MODE` | `false` | Enable local frame pre-filtering, Whisper VRAM unloading, and local Ollama pre-tagging. |
 | `GEMINI_VISION_MODEL` | `gemini-3.5-flash-lite` | Initial model that reads on-screen text from frames. |
-| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `360` | Frame sampling interval (s) and the most frames sent to Gemini per job. |
+| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `360` | Frame sampling interval (s) and max frames sent to Gemini. Frame extraction uses GPU acceleration (`-hwaccel auto`). |
 | `ONSCREEN_BATCH_SIZE` | `12` | Frames per Gemini Vision request. |
 | `MAX_CHARS_PER_LINE` | `42` | Line length limit for refinement and export. |
 | `TARGET_CPS` / `MAX_CPS_WARNING` | `17` / `20` | Reading speed the timing pass aims for / when the editor flags a line. |
