@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     gemini_vision_model: str = "gemini-3.5-flash-lite"
     # On-screen text scan: seconds between sampled frames, frame budget, frames per request
     onscreen_frame_interval: float = 2.0
-    onscreen_max_frames: int = 360
+    onscreen_max_frames: int = 660
     onscreen_batch_size: int = 12
     # Run a one-off glossary pass (characters, genders, terms) before translating
     gemini_glossary_pass: bool = True

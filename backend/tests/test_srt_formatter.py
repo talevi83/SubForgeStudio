@@ -7,7 +7,7 @@ from app.utils.srt_formatter import (
     serialize_to_vtt,
     calculate_cps,
 )
-from app.utils.rtl_fixer import RLM
+from app.utils.rtl_fixer import RLM, RLE, PDF
 
 
 def test_format_srt_timestamp():
@@ -71,9 +71,23 @@ def test_serialize_to_srt_translated_with_rtl():
         }
     ]
     srt = serialize_to_srt(segments, use_translated=True, apply_rtl=True)
-    expected_text = f"{RLM}שלום עולם!{RLM}"
+    expected_text = f"{RLE}{RLM}שלום עולם!{RLM}{PDF}"
     expected = f"1\n00:00:01,000 --> 00:00:03,500\n{expected_text}\n"
     assert srt.strip() == expected.strip()
+
+
+def test_serialize_to_srt_mixed_hebrew_and_english():
+    segments = [
+        {
+            "start_time": 1.0,
+            "end_time": 3.5,
+            "original_text": "GPR data",
+            "translated_text": "ששיבש את נתוני ה-GPR של יאן.",
+        }
+    ]
+    srt = serialize_to_srt(segments, use_translated=True, apply_rtl=True)
+    expected_text = f"{RLE}{RLM}ששיבש את נתוני ה-GPR של יאן.{RLM}{PDF}"
+    assert expected_text in srt
 
 
 def test_serialize_to_vtt():
@@ -88,3 +102,30 @@ def test_serialize_to_vtt():
     assert vtt.startswith("WEBVTT\n")
     assert "00:00:01.000 --> 00:00:03.500" in vtt
     assert "Hello world!" in vtt
+
+
+def test_serialize_onscreen_top_position_in_srt_and_vtt():
+    segments = [
+        {
+            "start_time": 10.0,
+            "end_time": 14.0,
+            "original_text": "[One week later...]",
+            "translated_text": "[שבוע לאחר מכן...]",
+            "segment_type": "ON_SCREEN",
+        },
+        {
+            "start_time": 11.0,
+            "end_time": 13.0,
+            "original_text": "Hello world!",
+            "translated_text": "שלום עולם!",
+            "segment_type": "DIALOGUE",
+        },
+    ]
+    srt = serialize_to_srt(segments, use_translated=True, apply_rtl=True)
+    assert f"{{\\an8}}{RLE}{RLM}[שבוע לאחר מכן...]{RLM}{PDF}" in srt
+    assert f"\n{RLE}{RLM}שלום עולם!{RLM}{PDF}\n" in srt
+
+    vtt = serialize_to_vtt(segments, use_translated=True, apply_rtl=True)
+    assert "00:00:10.000 --> 00:00:14.000 line:8%" in vtt
+    assert "00:00:11.000 --> 00:00:13.000\n" in vtt
+

@@ -104,7 +104,7 @@ def _settle(cues: Sequence, touched: Set[int]) -> None:
     """Keep touched cues in order, without overlaps, and not absurdly short."""
     for i in sorted(touched):
         cue = cues[i]
-        nxt = cues[i + 1] if i + 1 < len(cues) else None
+        nxt = next((cues[k] for k in range(i + 1, len(cues)) if not _is_skipped(cues[k])), None)
         if nxt is not None:
             limit = nxt.start_time - CUE_GAP
             if cue.end_time > limit:
@@ -116,8 +116,8 @@ def _settle(cues: Sequence, touched: Set[int]) -> None:
                 cue.end_time = round(min(cue.start_time + MIN_DURATION, limit), 3)
         elif cue.end_time - cue.start_time < MIN_DURATION:
             cue.end_time = round(cue.start_time + MIN_DURATION, 3)
-        prev = cues[i - 1] if i > 0 else None
-        if prev is not None and prev.end_time > cue.start_time - CUE_GAP and not _is_skipped(prev):
+        prev = next((cues[k] for k in range(i - 1, -1, -1) if not _is_skipped(cues[k])), None)
+        if prev is not None and prev.end_time > cue.start_time - CUE_GAP:
             wanted = cue.start_time - CUE_GAP
             if wanted - prev.start_time >= 0.3:
                 prev.end_time = round(wanted, 3)

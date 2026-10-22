@@ -40,12 +40,20 @@ export const findSegmentAt = (segments: SubtitleSegment[], time: number): number
   let hi = segments.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const seg = segments[mid];
-    if (time < seg.start_time) hi = mid - 1;
-    else if (time > seg.end_time) lo = mid + 1;
-    else return mid;
+    if (segments[mid].start_time <= time) lo = mid + 1;
+    else hi = mid - 1;
   }
-  return -1;
+  // Scan backwards from the last segment that started at or before `time`
+  let fallback = -1;
+  for (let i = hi; i >= 0; i--) {
+    const seg = segments[i];
+    if (time - seg.start_time > 30) break;
+    if (time >= seg.start_time && time <= seg.end_time) {
+      if (seg.segment_type !== 'ON_SCREEN') return i;
+      if (fallback === -1) fallback = i;
+    }
+  }
+  return fallback;
 };
 
 export const isTypingTarget = (target: EventTarget | null) => {

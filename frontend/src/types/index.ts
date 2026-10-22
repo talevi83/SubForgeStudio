@@ -118,6 +118,7 @@ export interface Job {
   detected_language?: string | null;
   vad_filter: boolean;
   comms_boost: boolean;
+  use_embedded_subtitles?: boolean;
   detect_onscreen_text: boolean;
   enable_translation: boolean;
   target_language: string;
@@ -225,6 +226,7 @@ export interface JobConfig {
   source_language: string;
   vad_filter: boolean;
   comms_boost: boolean;
+  use_embedded_subtitles?: boolean;
   detect_onscreen_text: boolean;
   enable_translation: boolean;
   target_language: string;

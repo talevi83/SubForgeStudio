@@ -181,6 +181,17 @@ def test_coverage_comes_from_words_not_segment_bounds():
     assert covered == [(57.0, 58.0), (84.6, 85.0)]
     assert (58.15, 84.45) in gr.find_gaps(covered, duration=90.0)
 
+    # A single word stretched across 5s of silence by Whisper is clamped so it doesn't hide a gap
+    stretched = RawSegment(
+        2, 33.5, 40.0, "There is a bright object.",
+        words=[
+            TranscribedWord(" There", 33.5, 38.2),
+            TranscribedWord(" is", 38.25, 38.5),
+            TranscribedWord(" a", 38.55, 38.7),
+        ],
+    )
+    assert gr.covered_intervals([stretched]) == [(37.0, 38.7)]
+
 
 def test_recovered_lines_keep_their_place_inside_a_batched_segment():
     """A batched segment spanning 57-85s must not push lines recovered at 73-82s after 85s."""

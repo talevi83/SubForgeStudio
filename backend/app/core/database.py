@@ -21,6 +21,7 @@ _ADDED_COLUMNS = {
         "detected_language": "VARCHAR",
         "glossary_json": "VARCHAR",
         "comms_boost": "BOOLEAN NOT NULL DEFAULT 0",
+        "use_embedded_subtitles": "BOOLEAN NOT NULL DEFAULT 1",
         "detect_onscreen_text": "BOOLEAN NOT NULL DEFAULT 0",
         "usage_json": "VARCHAR",
         "glossary_profile": "VARCHAR",

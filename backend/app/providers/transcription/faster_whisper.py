@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 TACTICAL_PRIMER = (
     "Clear transcript including military radio transmissions, walkie-talkie comms, callsigns, "
-    "over, copy, roger, sitrep, klicks, and low-voice tactical dialogue."
+    "over, copy, roger, sitrep, klicks, and low-voice tactical dialogue. "
+    "All right, do you copy? Yes, loud and clear, over. Let's take a look at what we have here."
 )
 # Short vocabulary list passed as `hotwords`: unlike `initial_prompt` (which faster-whisper only
 # uses for the first window when condition_on_previous_text=False) hotwords bias every window.
@@ -179,7 +180,9 @@ class FasterWhisperTranscriber(BaseTranscriber):
         if batched:
             logger.info(f"Transcribing with batched inference (batch_size={self.batch_size})")
             pipeline = BatchedInferencePipeline(model=model)
-            return pipeline.transcribe(audio_path, batch_size=self.batch_size, vad_filter=True, **common)
+            return pipeline.transcribe(
+                audio_path, batch_size=self.batch_size, vad_filter=True, chunk_length=15, **common
+            )
         return model.transcribe(audio_path, vad_filter=self.vad_filter, **common)
 
     async def transcribe(
@@ -380,7 +383,7 @@ class FasterWhisperTranscriber(BaseTranscriber):
         audio = load_wav(audio_path)
         duration = len(audio) / SAMPLE_RATE
         gaps = gr.find_gaps(gr.covered_intervals(spoken), duration, exclude)
-        gaps = [g for g in gr.split_long(gaps) if gr.level_db(audio, *g) > gr.MIN_LEVEL_DB]
+        gaps = [g for g in gr.split_long(gaps, max_len=14.0) if gr.level_db(audio, *g) > gr.MIN_LEVEL_DB]
         if not gaps:
             logger.info("Gap recovery: no uncovered audio worth re-listening to")
             return []

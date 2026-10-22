@@ -33,9 +33,10 @@ from app.pipeline.stages.base import PipelineStage, ProgressCallback
 
 logger = logging.getLogger(__name__)
 
-# Tiny grayscale thumbnails used to measure frame-to-frame change (scene cuts / static cards)
-_THUMB_W, _THUMB_H = 32, 18
+# Grayscale thumbnails used to measure frame-to-frame change (scene cuts / chyron overlays / static cards)
+_THUMB_W, _THUMB_H = 64, 36
 _SCENE_CHANGE = 0.12      # mean absolute pixel difference (0..1) that counts as a cut
+_OVERLAY_CHANGE = 0.065   # localized change from a lower-third chyron or title appearing mid-shot
 _STATIC = 0.015           # below this two frames are considered identical
 _ONSCREEN_BUFFER = 1.0    # seconds added after the last frame a text was seen in
 _ONSCREEN_MIN_DURATION = 1.5
@@ -56,7 +57,7 @@ _SUB_MAX_EXTENSIONS = 3
 
 
 # ---------------------------------------------------------------------------
-# Layer 1: embedded forced subtitle tracks
+# Layer 1: embedded forced subtitle tracks & full dialogue tracks
 # ---------------------------------------------------------------------------
 
 def pick_forced_track(streams: Sequence[SubtitleStreamInfo]) -> Optional[SubtitleStreamInfo]:
@@ -67,6 +68,119 @@ def pick_forced_track(streams: Sequence[SubtitleStreamInfo]) -> Optional[Subtitl
     # Prefer the explicit forced disposition, then English, then the first one
     candidates.sort(key=lambda s: (not s.forced, (s.language or "") not in ("eng", "en"), s.index))
     return candidates[0]
+
+
+_PURE_MUSIC_LINE = re.compile(r"^[\s♪♫#*+\-—–~]+$")
+_INLINE_MUSIC_NOTES = re.compile(r"[♪♫]")
+_SDH_SOUND_EFFECT = re.compile(
+    r"\[(?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groans|gasps|sighs|screaming|cheering|chatter|whispering|coughing|snickers|footsteps|thunder|wind|silence|beep|grunt|grunts|panting|engine|stammer|stammers)[^\]]*?)\]|"
+    r"\((?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groans|gasps|sighs|screaming|cheering|chatter|whispering|coughing|snickers|footsteps|thunder|wind|silence|beep|grunt|grunts|panting|engine|stammer|stammers)[^)]*?)\)",
+    re.IGNORECASE,
+)
+_SDH_INLINE_SOUND = re.compile(r"\[[a-zA-Z\s_-]{2,35}\]|\([a-zA-Z\s_-]{2,35}\)")
+_SDH_SPEAKER_LABEL = re.compile(
+    r"^(\s*[-–—]?\s*)\[([A-Z0-9\s._'-]{2,25})\]\s+(?=\S)",
+)
+
+
+def clean_embedded_dialogue_text(text: str, is_sdh: bool = False) -> str:
+    """Strip formatting tags, music note lines, and SDH noise while preserving dialogue and turns."""
+    clean = _TAGS.sub("", text or "").strip()
+    if not clean:
+        return ""
+    lines = []
+    for raw_l in clean.splitlines():
+        l = raw_l.strip()
+        if not l or _PURE_MUSIC_LINE.match(l):
+            continue
+        stripped_notes = l.strip("♪♫#*~ \t")
+        if not stripped_notes:
+            continue
+        # Drop pure bracketed/parenthesized sound descriptions
+        if (l.startswith("(") and l.endswith(")")) or (is_sdh and l.startswith("[") and l.endswith("]")):
+            inner = l[1:-1].strip()
+            if any(k in inner.lower() for k in ("music", "sound", "applause", "groan", "sigh", "pant", "gasp", "chatter", "cough", "cheer", "laugh", "stammer")):
+                continue
+        if is_sdh:
+            l = _SDH_SOUND_EFFECT.sub("", l)
+            # Remove any residual action cues like [stammers] or (sighs)
+            l = _SDH_INLINE_SOUND.sub(
+                lambda m: "" if any(k in m.group(0).lower() for k in ("stammer", "sigh", "gasp", "chuckle", "snicker", "whisper", "music", "groan", "applause", "laughter")) else m.group(0),
+                l,
+            )
+            l = _SDH_SPEAKER_LABEL.sub(r"\1", l.strip())
+        elif "[" in l or "(" in l:
+            l = _SDH_SOUND_EFFECT.sub("", l)
+            l = _SDH_SPEAKER_LABEL.sub(r"\1", l.strip())
+        l = _INLINE_MUSIC_NOTES.sub("", l).strip()
+        if l and not _PURE_MUSIC_LINE.match(l):
+            lines.append(l)
+    return "\n".join(lines).strip()
+
+
+def pick_dialogue_track(
+    streams: Sequence[SubtitleStreamInfo],
+    source_language: Optional[str] = "auto",
+    audio_streams: Sequence[Any] = (),
+    selected_audio_stream: int = 0,
+) -> Optional[SubtitleStreamInfo]:
+    """
+    Find the best embedded text-based full dialogue subtitle track, if any.
+    Prefers clean dialogue over SDH, matching source or audio stream language.
+    """
+    candidates = [s for s in streams if s.text_based and not s.looks_forced]
+    if not candidates:
+        return None
+
+    # Exclude commentary / audio description tracks
+    filtered = []
+    for s in candidates:
+        t = (s.title or "").lower()
+        if any(bad in t for bad in ("commentary", "director", "description", "audio desc")):
+            continue
+        filtered.append(s)
+    if not filtered:
+        filtered = candidates
+
+    desired_lang: Optional[str] = None
+    if source_language and source_language.lower() not in ("auto", "none"):
+        desired_lang = source_language.lower()
+    elif audio_streams:
+        audio = next((a for a in audio_streams if getattr(a, "index", None) == selected_audio_stream), None)
+        if audio and getattr(audio, "language", None) and audio.language.lower() not in ("und", "unknown"):
+            desired_lang = audio.language.lower()
+
+    def _lang_match_score(s: SubtitleStreamInfo) -> int:
+        s_lang = (s.language or "").lower()
+        s_title = (s.title or "").lower()
+        if desired_lang:
+            if s_lang == desired_lang or desired_lang in s_title:
+                return 0
+            if desired_lang in ("en", "eng") and (s_lang in ("en", "eng") or "english" in s_title):
+                return 0
+            if desired_lang in ("he", "heb") and (s_lang in ("he", "heb") or "hebrew" in s_title):
+                return 0
+            return 2
+        if s_lang in ("en", "eng") or "english" in s_title:
+            return 0
+        if s_lang in ("und", ""):
+            return 1
+        return 2
+
+    filtered.sort(
+        key=lambda s: (
+            _lang_match_score(s),
+            1 if s.looks_sdh else 0,
+            0 if s.default else 1,
+            s.index,
+        )
+    )
+    best = filtered[0]
+    if _lang_match_score(best) <= 1:
+        return best
+    if desired_lang and _lang_match_score(best) > 1:
+        return None
+    return best
 
 
 _SRT_TIME = re.compile(
@@ -112,6 +226,64 @@ async def extract_forced_track(video_path: str, stream: SubtitleStreamInfo) -> L
         make_onscreen_segment(c["start_time"], c["end_time"], c["text"], bracket=False)
         for c in parse_srt(stdout.decode("utf-8", errors="ignore"))
     ]
+
+
+async def extract_dialogue_track(
+    video_path: str,
+    stream: SubtitleStreamInfo,
+    duration: float = 0.0,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Extract embedded subtitle stream via ffmpeg into:
+    - dialogue_segments: clean dialogue cues
+    - onscreen_segments: top-of-screen titles (marked with {\\an8} in SRT/ASS)
+    """
+    process = await asyncio.create_subprocess_exec(
+        get_ffmpeg_bin(), "-v", "error", "-i", str(Path(video_path).resolve()),
+        "-map", f"0:s:{stream.index}", "-f", "srt", "pipe:1",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        raise RuntimeError(f"Could not extract subtitle stream {stream.index}: {stderr.decode(errors='ignore')[-500:]}")
+
+    content = stdout.decode("utf-8", errors="ignore").replace("\ufeff", "").strip()
+    blocks = re.split(r"\r?\n\s*\r?\n", content)
+
+    dialogue: List[Dict[str, Any]] = []
+    onscreen: List[Dict[str, Any]] = []
+
+    for block in blocks:
+        lines = [l for l in block.splitlines() if l.strip()]
+        for i, line in enumerate(lines):
+            match = _SRT_TIME.search(line)
+            if not match:
+                continue
+            g = match.groups()
+            start_ts = _ts(*g[:4])
+            end_ts = _ts(*g[4:])
+            raw_text = "\n".join(lines[i + 1:])
+            is_top = "{\\an8}" in raw_text or "\\an8" in raw_text
+            cleaned = clean_embedded_dialogue_text(raw_text, is_sdh=stream.looks_sdh)
+            if not cleaned:
+                continue
+            if is_top:
+                onscreen.append(make_onscreen_segment(start_ts, end_ts, cleaned, bracket=True))
+            else:
+                dialogue.append({
+                    "index": len(dialogue) + 1,
+                    "start_time": round(start_ts, 3),
+                    "end_time": round(max(end_ts, start_ts + 0.4), 3),
+                    "original_text": cleaned,
+                    "translated_text": None,
+                    "translation_failed": False,
+                    "segment_type": SegmentType.DIALOGUE.value,
+                    "confidence": 1.0,
+                })
+            break
+
+    return dialogue, onscreen
 
 
 # ---------------------------------------------------------------------------
@@ -176,12 +348,11 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
     out_dir.mkdir(parents=True, exist_ok=True)
     thumbs_path = out_dir / "thumbs.raw"
 
-    # Use GPU hardware decoding (-hwaccel auto -> NVDEC/D3D11VA) whenever available, and for
-    # real episodes (>= 60s) discard non-keyframe packets at the demuxer so high-FPS / AV1
-    # videos do not decode 99% of intermediate frames on CPU just to drop them in fps=1/2.
+    # Use GPU hardware decoding (-hwaccel auto -> NVDEC/D3D11VA) whenever available.
+    # NOTE: Do NOT use `-discard nokey` here — in Web-DL H.264/HEVC files keyframes can be
+    # 5-10 seconds apart, causing `-discard nokey` to completely skip lower-third chyrons
+    # (e.g., speaker names/titles) and brief on-screen text that appear between keyframes.
     input_flags = ["-hwaccel", "auto"]
-    if ctx.duration <= 0 or ctx.duration >= 60.0:
-        input_flags += ["-discard", "nokey"]
 
     command = [
         get_ffmpeg_bin(), "-v", "error", "-nostats", "-y",
@@ -215,13 +386,22 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
     jpgs = sorted(out_dir.glob("f_*.jpg"))
     thumbs = thumbs_path.read_bytes() if thumbs_path.exists() else b""
     size = _THUMB_W * _THUMB_H
+    top_k = max(1, size // 20)  # ~5% of frame area (catches lower-third chyron / title overlays)
     frames: List[Frame] = []
     prev: Optional[bytes] = None
     for i, jpg in enumerate(jpgs):
         thumb = thumbs[i * size:(i + 1) * size]
-        change = 1.0 if prev is None or len(thumb) < size else (
-            sum(abs(a - b) for a, b in zip(thumb, prev)) / (size * 255)
-        )
+        if prev is None or len(thumb) < size:
+            change = 1.0
+        else:
+            diffs = [abs(a - b) for a, b in zip(thumb, prev)]
+            global_change = sum(diffs) / (size * 255)
+            diffs.sort(reverse=True)
+            top_zone_change = sum(diffs[:top_k]) / (top_k * 255)
+            # A lower-third chyron or title overlay appearing over a static talking head changes
+            # ~4-8% of the frame strongly while keeping global_change small; blending the top-5%
+            # localized change ensures chyron fade-ins register above _SCENE_CHANGE (0.12).
+            change = max(global_change, top_zone_change * 0.75)
         frames.append(Frame(time=round(i * interval, 3), path=jpg, change=change))
         prev = thumb if len(thumb) == size else prev
     _fill_static_runs(frames, interval)
@@ -252,18 +432,28 @@ def select_frames(
 ) -> List[Frame]:
     """
     Pick the frames worth sending to Gemini:
-      1. frames right after a scene cut (and the one following it)
+      1. frames right after a scene cut (and the ones shortly following it, where lower-third chyrons settle)
       2. frames inside speech gaps
+      3. localized overlay transitions during speech (when a chyron or graphic appears mid-shot)
     Within a static run (same picture) only the first frame is kept — its `static_until`
-    covers the rest. If over budget, cuts in gaps win, then gaps, then cuts during speech,
-    spread evenly across the episode.
+    covers the rest. If over budget, cuts in gaps win, then speech cuts and gaps share the
+    remaining budget so lower-third speaker chyrons during dialogue are never starved.
     """
     speech = sorted(speech)
     starts = [s for s, _ in speech]
+    extended_post_cut = len(frames) > 20
     picked: Dict[int, int] = {}  # frame index -> priority (lower = more important)
     for i, f in enumerate(frames):
         is_cut = f.change >= _SCENE_CHANGE
-        after_cut = i > 0 and frames[i - 1].change >= _SCENE_CHANGE
+        after_cut = (
+            (i > 0 and frames[i - 1].change >= _SCENE_CHANGE)
+            or (extended_post_cut and i > 1 and frames[i - 2].change >= _SCENE_CHANGE)
+            or (extended_post_cut and i > 2 and frames[i - 3].change >= _SCENE_CHANGE)
+        )
+        overlay_shift = extended_post_cut and (
+            f.change >= _OVERLAY_CHANGE
+            or (i > 0 and frames[i - 1].change >= _OVERLAY_CHANGE)
+        )
         static_repeat = i > 0 and f.change < _STATIC
         if static_repeat:
             continue
@@ -272,19 +462,45 @@ def select_frames(
             picked[i] = 0
         elif gap:
             picked[i] = 1
-        elif is_cut or after_cut:
+        elif is_cut or after_cut or overlay_shift:
             picked[i] = 2
+        elif extended_post_cut and f.change >= _STATIC * 2.0:
+            picked[i] = 3
 
     chosen: List[int] = []
-    for priority in (0, 1, 2):
-        tier = [i for i, p in picked.items() if p == priority]
-        room = budget - len(chosen)
-        if room <= 0:
-            break
-        if len(tier) > room:
-            step = len(tier) / room
-            tier = [tier[int(k * step)] for k in range(room)]
-        chosen.extend(tier)
+    tiers = {p: [i for i, pr in picked.items() if pr == p] for p in (0, 1, 2, 3)}
+
+    def _take(tier: List[int], limit: int) -> List[int]:
+        if limit <= 0 or not tier:
+            return []
+        if len(tier) <= limit:
+            return list(tier)
+        step = len(tier) / limit
+        return [tier[int(k * step)] for k in range(limit)]
+
+    # Always prioritize cuts inside speech gaps (title cards / location cards).
+    chosen.extend(_take(tiers[0], budget))
+    room = budget - len(chosen)
+    if room > 0:
+        if budget >= 10 and tiers[1] and tiers[2]:
+            # Reserve up to half of the remaining budget for speech cuts / post-cut frames
+            # so lower-third speaker chyrons during dialogue are never starved by long silent scenes.
+            speech_quota = min(len(tiers[2]), max(1, room // 2))
+            gap_quota = min(len(tiers[1]), room - speech_quota)
+            if gap_quota + speech_quota < room:
+                speech_quota = min(len(tiers[2]), room - gap_quota)
+                gap_quota = min(len(tiers[1]), room - speech_quota)
+            chosen.extend(_take(tiers[1], gap_quota))
+            chosen.extend(_take(tiers[2], speech_quota))
+        else:
+            for priority in (1, 2):
+                rem = budget - len(chosen)
+                if rem <= 0:
+                    break
+                chosen.extend(_take(tiers[priority], rem))
+        rem = budget - len(chosen)
+        if rem > 0 and tiers[3]:
+            chosen.extend(_take(tiers[3], rem))
     return [frames[i] for i in sorted(chosen)]
 
 
@@ -292,11 +508,38 @@ def _norm(text: str) -> str:
     return re.sub(r"[\W_]+", "", text.casefold())
 
 
+def _is_partial_reveal(a: str, b: str) -> bool:
+    """True if one text is a mid-animation typewriter/fade-in fragment of the other
+    (e.g. 'THE MESA DRI' vs 'THE MESA DRILL SITE', or 'BARD — IGATOR' vs
+    'ERIK BARD — PRINCIPAL INVESTIGATOR')."""
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb or na == nb:
+        return False
+    short_n, long_n = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if len(short_n) >= 4 and short_n in long_n:
+        return True
+    short_raw, long_raw = (a, b) if len(na) <= len(nb) else (b, a)
+    tokens = [_norm(t) for t in re.split(r"[\s—–\-/,:;|]+", short_raw) if len(_norm(t)) >= 3]
+    if len(tokens) >= 2 and sum(len(t) for t in tokens) >= 6:
+        pos = 0
+        for tok in tokens:
+            idx = long_n.find(tok, pos)
+            if idx < 0:
+                return False
+            pos = idx + len(tok)
+        return True
+    return False
+
+
 def _same_text(a: str, b: str, threshold: float = 0.85) -> bool:
     na, nb = _norm(a), _norm(b)
     if not na or not nb:
         return False
-    return na == nb or difflib.SequenceMatcher(None, na, nb).ratio() >= threshold
+    return (
+        na == nb
+        or difflib.SequenceMatcher(None, na, nb).ratio() >= threshold
+        or _is_partial_reveal(a, b)
+    )
 
 
 def merge_frame_detections(
@@ -308,6 +551,7 @@ def merge_frame_detections(
     segment_type: str = SegmentType.ON_SCREEN.value,
     drop_tags: bool = False,
     repeat_window: float = 0.0,
+    file_name: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Collapse consecutive frames showing the same text into one ON_SCREEN segment:
@@ -316,8 +560,9 @@ def merge_frame_detections(
     "One week later...") count as the same text.
 
     For narrative titles (not burned-in subtitles) `drop_tags` discards lone short words
-    (HUD labels, unit callsigns) and `repeat_window` keeps a sign that was already shown
-    from being repeated when the camera returns to it shortly after.
+    (HUD labels, unit callsigns), random document boilerplate, and the show's own title logo,
+    and `repeat_window` keeps a sign that was already shown from being repeated when the
+    camera returns to it shortly after.
     """
     max_gap = frame_interval * 2.5
     groups: List[Dict[str, Any]] = []
@@ -326,8 +571,8 @@ def merge_frame_detections(
             continue
         if not re.search(r"[^\W\d_]", det.text):
             continue  # bare numbers / clocks ("151", "00:35") are not readable text
-        if drop_tags and _is_tag(det.text):
-            logger.info(f"On-screen text at {det.time:.1f}s dropped as a label: {det.text.strip()!r}")
+        if drop_tags and (_is_tag(det.text) or _is_unwanted_onscreen(det.text, file_name=file_name)):
+            logger.info(f"On-screen text at {det.time:.1f}s dropped as non-narrative/label: {det.text.strip()!r}")
             continue
         last_seen = max(det.time, det.until or det.time)
         match = None
@@ -375,25 +620,84 @@ def _is_tag(text: str) -> bool:
     return words[0].isupper() and len(bare) <= _TAG_MAX_UPPER
 
 
+_DOCUMENT_BOILERPLATE = re.compile(
+    r"""\b(
+        arrest\s+report
+      | police\s+(department|report)
+      | incident\s+report
+      | medical\s+(report|record)
+      | autopsy\s+report
+      | lab(oratory)?\s+report
+      | case\s+(file|number|no\b)
+      | personnel\s+file
+      |search\s+warrant
+      | certificate\s+of
+      | department\s+of\s+justice
+      | form\s+#?\d+
+    )\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_ALLOWED_KINDS = {
+    "", "time_jump", "location", "date_time", "title_card", "chyron", "message", "text_message", "screen_message", "hud", "sign", "other",
+}
+_REJECTED_KINDS = {"document", "report", "form", "credits", "show_title", "background", "incidental"}
+
+
+def _series_stem_norm(file_name: str) -> str:
+    """Extract normalized series/movie title stem before S01E01 / year tokens."""
+    if not file_name:
+        return ""
+    stem = Path(file_name).stem
+    m = re.split(r"[.\s_-]+(?:S\d{1,2}E\d{1,2}|\d{3,4}p|(?:19|20)\d{2})\b", stem, maxsplit=1, flags=re.IGNORECASE)
+    head = m[0] if m else stem
+    return _norm(head)
+
+
+def _is_unwanted_onscreen(text: str, kind: str = "", file_name: str = "") -> bool:
+    """
+    Return True if `text` looks like random document/form boilerplate, an overly long
+    document dump, or the show's own main title card rather than narrative titles,
+    speaker identification chyrons, or viewer-intended messages (like phone texts).
+    """
+    k = (kind or "").strip().lower()
+    if k in _REJECTED_KINDS:
+        return True
+    clean = text.strip().strip("[]").strip()
+    if not clean:
+        return True
+    if _DOCUMENT_BOILERPLATE.search(clean):
+        return True
+    words = clean.split()
+    if len(words) > 14 or len(clean) > 95:
+        return True
+    series_norm = _series_stem_norm(file_name)
+    if series_norm and len(series_norm) >= 6 and _norm(clean) == series_norm:
+        return True
+    return False
+
+
 VISION_SYSTEM_INSTRUCTION = """You read video frames from a movie or TV episode for a subtitle editor.
-For each frame, report ONLY narrative on-screen text the viewer is meant to read:
-- time jumps ("One week later...", "36 Hours Earlier")
-- location / date / time stamps ("Damascus, Syria", "March 3, 2014 - 0400 hours")
-- tactical HUD headers, mission titles or timestamps
-- plot-critical signs, documents, screens or text messages shown to the viewer
-- establishing shots framed on a sign that names the place, facility, ship or unit
-  ("NAVAL HOSPITAL GUANTANAMO BAY", "JTF-GTMO FUEL DEPOT") — report the sign text
-- close-ups the camera deliberately frames on a warning plate or screen message
-  ("HALON GAS SYSTEM", "SYSTEM ERROR", "ACCESS DENIED")
+Report ONLY on-screen text that the viewer is genuinely meant to read to follow the story or programme:
+1. **Speaker / interviewee / expert / character identification chyrons & lower-thirds (`chyron`):**
+   - Lower-third or overlaid captions introducing a person on screen with their name, title, role, or affiliation (e.g. "DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT", "MARTY LAGINA", "JOHN SMITH — FORMER FBI AGENT"). Combine the name and role/title lines with a newline (`\\n`).
+2. **Narrative overlaid titles & captions (`time_jump`, `location`, `date_time`, `title_card`):**
+   - Time jumps ("One week later...", "36 Hours Earlier", "Summer 2018")
+   - Location / date / time stamps ("Damascus, Syria", "March 3, 2014 - 0400 hours", "1st July", "Oak Island, Nova Scotia", "Skinwalker Ranch", "Skinwalker Ranch — Command Center")
+   - Narrative chapter titles, documentary fact/info overlays, map/elevation labels ("1000 FEET", "THE MESA DRILL SITE"), or news ticker headlines deliberately overlaid for the audience
+3. **Viewer-facing messages (`text_message`, `screen_message`):**
+   - Text messages / SMS / chat messages on a phone screen when the camera frames the phone so the audience can read the message
+   - A deliberate close-up insert shot of a short computer/screen alert, note, or headline that the viewer must read to understand the scene
 
-Strictly IGNORE: channel watermarks and network logos, hardcoded dialogue subtitles, opening or
-closing credits (actor/crew names, titles of the show), and incidental background text (store
-signs, posters, labels, license plates) that is not the focus of the shot. Also ignore hull
-numbers and other bare numbers, running clocks/countdowns, equipment brand or gauge labels
-(e.g. "SCOTT", "PSI X 100"), and one-word HUD/radio labels or unit callsigns ("EAGLE", "LIVE", "REC").
+Strictly IGNORE and DO NOT report:
+- **Random documents, paperwork, forms, or files in the frame:** police/arrest reports ("CALWELL POLICE DEPARTMENT ARREST REPORT"), medical charts, case files, folders, ID badges, newspapers, book pages, letters, or printed forms lying on a desk or held by a character.
+- **Opening/closing credits and the show's own stylized main title logo** (e.g. the full series title card "THE SECRET OF SKINWALKER RANCH" or actor/crew credits; however, DO report narrative location titles like "SKINWALKER RANCH" or "OAK ISLAND" when they identify a location in a scene).
+- **Incidental background or environmental text:** building/street/store signs, posters, banners, license plates, computer UI chrome, phone status bars/clocks/contact headers, equipment/gauge labels, bare numbers, channel watermarks, and bottom dialogue subtitles.
+- **One-word HUD/radio tags or callsigns** ("EAGLE", "LIVE", "REC").
 
-Copy the text exactly as shown (keep its language and line breaks). Use the timestamp given before
-each frame. Frames without qualifying text must be omitted. Return an empty list if none qualify."""
+If a chyron or title is animating in/out across consecutive frames in the batch, report its complete reading and skip half-typed mid-transition fragments (e.g. report "THE MESA DRILL SITE", not "THE MESA DRI").
+If a frame only contains a paper document, report header, background sign, or the show's main title logo, omit it completely.
+Copy qualifying text concisely as shown (for phone messages, copy only the message text itself, not the phone UI/clock). Use the timestamp given before each frame. Return an empty list if none qualify."""
 
 
 SUBTITLE_INSTRUCTION = """Each image is the bottom part of a frame from a movie or TV episode, cropped where subtitles appear.
@@ -422,8 +726,11 @@ async def _gemini_detect(
 
     class OnScreenText(BaseModel):
         timestamp: float = Field(description="Timestamp (seconds) of the frame, copied from the input")
-        text: str = Field(description="The narrative on-screen text exactly as shown")
-        kind: str = Field(default="other", description="time_jump | location | date_time | hud | sign | message | other")
+        text: str = Field(description="The speaker chyron, narrative title, or viewer-intended message text exactly as shown")
+        kind: str = Field(
+            default="other",
+            description="chyron | time_jump | location | date_time | title_card | text_message | screen_message",
+        )
 
     class OnScreenBatch(BaseModel):
         detections: List[OnScreenText] = []
@@ -455,6 +762,9 @@ async def _gemini_detect(
     parsed = OnScreenBatch.model_validate_json(response.text)
     out = []
     for d in parsed.detections:
+        if stage == "onscreen" and _is_unwanted_onscreen(d.text, d.kind):
+            logger.info(f"On-screen detection at {d.timestamp:.1f}s ignored ({d.kind}): {d.text!r}")
+            continue
         # Snap to the nearest real frame in this batch (models occasionally round timestamps)
         frame = min(batch, key=lambda f: abs(f.time - d.timestamp))
         out.append(FrameDetection(time=frame.time, text=d.text, until=frame.static_until))
@@ -665,7 +975,10 @@ class OnScreenTextStage(PipelineStage):
         frames: List[Frame] = await task
         ctx.raise_if_cancelled()
 
-        speech = [(s.start_time, s.end_time) for s in ctx.raw_segments]
+        if ctx.embedded_dialogue_segments:
+            speech = [(float(s["start_time"]), float(s["end_time"])) for s in ctx.embedded_dialogue_segments]
+        else:
+            speech = [(s.start_time, s.end_time) for s in ctx.raw_segments]
         selected = select_frames(frames, speech, settings.onscreen_max_frames)
 
         from app.core.user_settings import load_settings
@@ -707,7 +1020,6 @@ class OnScreenTextStage(PipelineStage):
                 for c in clusters
             ]
             if not selected:
-                ctx.onscreen_segments = []
                 await progress(65.0, f"Filtered {filtered_frames} blank frames locally")
                 return
 
@@ -722,9 +1034,36 @@ class OnScreenTextStage(PipelineStage):
         detections, failed = await self._detect_batches(
             ctx, client, selected, VISION_SYSTEM_INSTRUCTION, "onscreen", on_batch
         )
-        ctx.onscreen_segments = merge_frame_detections(
-            detections, settings.onscreen_frame_interval, drop_tags=True, repeat_window=_ONSCREEN_REPEAT_WINDOW
+        found = merge_frame_detections(
+            detections,
+            settings.onscreen_frame_interval,
+            drop_tags=True,
+            repeat_window=_ONSCREEN_REPEAT_WINDOW,
+            file_name=ctx.file_name or "",
         )
+        dialogue_list = ctx.embedded_dialogue_segments or [
+            {"start_time": s.start_time, "end_time": s.end_time, "original_text": s.text}
+            for s in ctx.raw_segments
+        ]
+        filtered_found = []
+        for f in found:
+            is_dialogue_dup = any(
+                _same_text(f["original_text"], d["original_text"])
+                and max(0.0, min(f["end_time"], d["end_time"]) - max(f["start_time"], d["start_time"])) > 0.0
+                for d in dialogue_list
+            )
+            if is_dialogue_dup:
+                continue
+            is_onscreen_dup = any(
+                _same_text(f["original_text"], o["original_text"])
+                and max(0.0, min(f["end_time"], o["end_time"]) - max(f["start_time"], o["start_time"])) > 0.0
+                for o in ctx.onscreen_segments
+            )
+            if is_onscreen_dup:
+                continue
+            filtered_found.append(f)
+
+        ctx.onscreen_segments = sorted(ctx.onscreen_segments + filtered_found, key=lambda s: s["start_time"])
         for seg in ctx.onscreen_segments:
             logger.info(f"On-screen text {seg['start_time']:.1f}-{seg['end_time']:.1f}s: {seg['original_text']!r}")
 

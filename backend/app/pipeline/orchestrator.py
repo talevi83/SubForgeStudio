@@ -223,6 +223,7 @@ class PipelineOrchestrator:
                 detected_language=job.detected_language,
                 vad_filter=job.vad_filter,
                 comms_boost=job.comms_boost,
+                use_embedded_subtitles=getattr(job, "use_embedded_subtitles", True),
                 detect_onscreen_text=job.detect_onscreen_text,
                 enable_translation=job.enable_translation or self.mode == "translate",
                 target_language=job.target_language,
@@ -476,7 +477,8 @@ class PipelineOrchestrator:
                 base_pct = done_weight / total_weight * 100
 
                 if stage_status == JobStatus.TRANSCRIBING:
-                    await self._acquire_gpu(round(base_pct, 1))
+                    if not ctx.embedded_dialogue_segments:
+                        await self._acquire_gpu(round(base_pct, 1))
 
                 self._update_job(
                     status=stage_status,
@@ -548,8 +550,17 @@ class PipelineOrchestrator:
                         "progress_percent": round(done_weight / total_weight * 100, 1),
                         "segments_batch": [_segment_payload(self.job_id, s) for s in ctx.refined_segments],
                     })
-                elif stage_status == JobStatus.TRANSLATING and ctx.glossary is not None:
-                    self._update_job(glossary_json=json.dumps(ctx.glossary, ensure_ascii=False))
+                elif stage_status == JobStatus.TRANSLATING:
+                    if ctx.glossary is not None:
+                        self._update_job(glossary_json=json.dumps(ctx.glossary, ensure_ascii=False))
+                    if any(s.get("id") is None for s in ctx.refined_segments):
+                        self._save_segments(ctx.refined_segments)
+                        await self._broadcast({
+                            "event": "SEGMENTS_REFINED",
+                            "stage": JobStatus.TRANSLATING.value,
+                            "progress_percent": round(done_weight / total_weight * 100, 1),
+                            "segments_batch": [_segment_payload(self.job_id, s) for s in ctx.refined_segments],
+                        })
 
             ctx.raise_if_cancelled()
             warnings = [w for w in [*ctx.warnings, ctx.translation_warning] if w]

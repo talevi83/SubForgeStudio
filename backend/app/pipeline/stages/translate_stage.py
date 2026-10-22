@@ -235,6 +235,15 @@ class TranslateStage(PipelineStage):
             logger.error(ctx.translation_warning)
             return
 
+        from app.utils.speaker_split import split_dual_speaker_segments
+
+        ctx.refined_segments = split_dual_speaker_segments(
+            ctx.refined_segments,
+            max_chars_per_line=settings.max_chars_per_line,
+            min_gap=settings.min_gap_seconds,
+        )
+        ctx.translated_segments = ctx.refined_segments
+
         failed = sum(1 for s in ctx.refined_segments if s.get("translation_failed"))
         if failed:
             ctx.translation_warning = (

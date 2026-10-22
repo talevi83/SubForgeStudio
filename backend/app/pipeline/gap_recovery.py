@@ -15,10 +15,11 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-MIN_GAP = 1.0            # seconds of uncovered audio worth re-listening to
+MIN_GAP = 0.85           # seconds of uncovered audio worth re-listening to
 EDGE = 0.15              # keep away from the neighbours' first/last words
 MIN_LEVEL_DB = -48.0     # quieter than this (RMS, dBFS) is treated as silence
 MAX_CLIP = 28.0          # split long gaps so each clip fits one Whisper window
+MAX_WORD_COVER = 1.2     # clamp single words stretched across silence so they don't hide gaps
 
 # Acceptance thresholds for recovered lines.
 # `avg_logprob` and `no_speech_prob` come from faster-whisper per decoding window, so every line in
@@ -49,7 +50,7 @@ STRETCH_SLACK = 2.0
 COMMAND_WORDS = {
     "fire", "move", "go", "clear", "stop", "hold", "down", "contact", "grenade", "ready", "aim",
     "cover", "reload", "moving", "set", "freeze", "breach", "push", "back", "run", "duck", "incoming",
-    "sniper", "medic", "wait", "now", "out",
+    "sniper", "medic", "wait", "now", "out", "no", "hey", "watch", "look", "whoa", "wow",
 }
 COMMAND_PHRASES = {
     "get down", "man down", "cease fire", "hold fire", "fire at will", "frag out", "open fire",
@@ -172,6 +173,14 @@ def rejection_reason(
     min_logprob = SHORT_MIN_AVG_LOGPROB if short else MIN_AVG_LOGPROB
     max_no_speech = SHORT_MAX_NO_SPEECH if short else MAX_NO_SPEECH
     min_word_prob = SHORT_MIN_WORD_PROB if short else MIN_WORD_PROB
+    if (
+        short
+        and avg_logprob is not None
+        and avg_logprob >= -0.75
+        and no_speech_prob is not None
+        and no_speech_prob <= 0.25
+    ):
+        min_word_prob = 0.35
     noisy_speech = (
         no_speech_prob is not None and no_speech_prob <= NOISY_MAX_NO_SPEECH
         and mean_word_prob is not None and mean_word_prob >= NOISY_MIN_WORD_PROB
@@ -197,12 +206,21 @@ def rejection_reason(
 def covered_intervals(segments: Sequence, join: float = 0.3) -> List[Tuple[float, float]]:
     """Where speech was actually recognized. Word timestamps are used when available: a batched
     Whisper segment can span audio the VAD removed in the middle of it (e.g. 0:57-1:25 around a
-    shooting range full of shouted commands), and the segment bounds would hide that gap."""
+    shooting range full of shouted commands), and the segment bounds would hide that gap.
+    Single words whose timestamps were stretched across silence by Whisper are clamped so they
+    cannot mask an uncovered speech gap."""
     spans: List[Tuple[float, float]] = []
     for seg in segments:
         words = [w for w in (getattr(seg, "words", None) or []) if w.end > w.start]
         if words:
-            spans.extend((float(w.start), float(w.end)) for w in words)
+            for i, w in enumerate(words):
+                ws, we = float(w.start), float(w.end)
+                if we - ws > MAX_WORD_COVER:
+                    if i == 0 and len(words) > 1:
+                        ws = we - MAX_WORD_COVER
+                    else:
+                        we = ws + MAX_WORD_COVER
+                spans.append((ws, we))
         else:
             spans.append((float(seg.start_time), float(seg.end_time)))
     spans.sort()

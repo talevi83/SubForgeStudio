@@ -125,7 +125,7 @@ def build_subtitle_system_prompt(
    - **Gender & Plurality Resolution:** English "you" or gender-neutral verbs must be conjugated accurately into masculine/feminine and singular/plural based on speaker/listener clues, the glossary and the show notes.
    - **Slang, Humor & Profanity:** Preserve the exact register, tone, and intensity of the original dialogue. Do not censor profanity; use authentic Hebrew equivalents that match the character's voice.
    - **Proper Nouns & Technical Terms:** Transliterate character names consistently across batches (use the glossary spellings).
-   - **On-screen titles (`segment_type` = "ON_SCREEN", or any line wrapped in `[...]`):** translate concisely as an official Hebrew broadcast screen title and keep the square brackets, e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`. Write dates/times the way Israeli broadcasters do.
+   - **On-screen titles & speaker chyrons (`segment_type` = "ON_SCREEN", or any line wrapped in `[...]`):** translate concisely as an official Hebrew broadcast screen title and keep the square brackets, e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`, `[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]` → `[ד״ר יאן פרנקה — מומחה בינלאומי ל-GPR]`. Write dates/times the way Israeli broadcasters do.
    - **Radio & military comms (`segment_type` = "COMMS", or military/radio terminology in any line):** use authentic IDF/tactical Hebrew radio phrasing, short and clipped, e.g. "Copy that" → "קיבלתי" / "רות", "Over" → "עבור", "Over and out" → "סוף", "Roger" → "רות", "Say again" → "חזור", "Sitrep" → "דו"ח מצב", "Do you copy?" → "שומע?". Keep callsigns as transliterated names.
 """
 
@@ -148,18 +148,18 @@ Translate the `target_batch` subtitle segments into natural, idiomatic, spoken {
    - If a translation exceeds {max_chars_per_line} characters, split it into two visually balanced lines at a natural linguistic boundary (e.g., after a comma, conjunction, or preposition).
    - Respect `duration_sec`: keep phrasing concise so the viewer can read it comfortably (aim for {settings.target_cps:.0f} characters per second or fewer). Condense rather than overflow.
 
-3. **Split Sentences & Continuity:**
-   - Sentences frequently span across two or more consecutive subtitle segments.
-   - Inspect `previous_context` and `lookahead_context` to understand the full sentence before translating.
-   - Ensure each segment contains the semantic portion spoken during that exact timeframe so the text stays synchronized with the actor's speech on screen.
+3. **Split Sentences & Continuity (No Orphan Words):**
+   - Sentences may span across two or more consecutive subtitle segments when a single long thought continues across cues.
+   - Inspect `previous_context`, adjacent items in `target_batch`, and `lookahead_context` to understand the full sentence before translating.
+   - **CRITICAL — Never strand 1–2 orphan words across a boundary:** Automatic speech recognition (ASR) sometimes cuts a segment 1–2 words too early or too late (especially in unpunctuated segments). NEVER end a segment with a complete sentence followed by 1–2 dangling words that actually start the next segment's sentence, and NEVER start a segment with the final 1–2 words of the previous segment's sentence followed by a period and a new sentence (e.g. avoid ending segment N with "...אני לא בטוח מה" and starting segment N+1 with "זה. מה לעזאזל זה?"). Keep each complete sentence whole inside the segment where it belongs so the previous sentence ends with its final word and period in segment N, and segment N+1 begins cleanly with its own sentence.
 
 4. **Dialogue & Dual Speakers:**
-   - If the original segment contains two speakers (indicated by leading hyphens, e.g., `- Hello.\\n- Hi.`), you MUST preserve the two-line hyphen structure (`- ...\\n- ...`).
+   - If a single segment contains two different speakers (whether indicated by leading hyphens, e.g., `- Hello.\\n- Hi.`, or an unpunctuated ASR run-on containing a question/statement and another person's reply), format each speaker's turn on its own line starting with `- ` (`- ...\\n- ...`) so downstream processing can split them into separate single-speaker subtitles.
 
 5. **Segment Types (`segment_type`):**
    - "DIALOGUE": normal speech.
    - "COMMS": a radio / walkie-talkie transmission — keep it terse, in radio procedure style.
-   - "ON_SCREEN": text shown on screen (time jump, location, date, sign). Translate it as a short screen title and keep any surrounding square brackets `[...]`. A bracketed first line inside a DIALOGUE segment is also an on-screen title: translate it the same way and keep it as the first line.
+   - "ON_SCREEN": text shown on screen (speaker/expert identification chyron, time jump, location, date, phone text message). Translate it as a short screen title (transliterating person names and translating their title/role) and keep any surrounding square brackets `[...]`. A bracketed first line inside a DIALOGUE segment is also an on-screen title: translate it the same way and keep it as the first line.
    - "FOREIGN": a line spoken in a different language than the rest of the show (e.g. Russian in an English series). Its text is either the show's own subtitle for that line or a transcription in the original language — either way, translate it into the target language as ordinary dialogue (no brackets).
 {hebrew_rules}
 7. **Output hygiene:** Plain text only. Keep punctuation at the logical end of sentences and do NOT insert Unicode direction marks or manually reverse punctuation — a downstream processor handles right-to-left display. Never put the ASCII double-quote character (") inside a translation — it ends the JSON string and cuts the subtitle off. For Hebrew abbreviations use gershayim ״ and geresh ׳ (ד״ר, אב״כ, נ״צ, כנ״ל, צה״ל, ג׳יימס); for quotations use “ ”.

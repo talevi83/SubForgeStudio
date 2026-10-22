@@ -91,3 +91,15 @@ def test_word_stretched_over_silence_is_clamped():
     raw = [RawSegment(index=1, start_time=65.4, end_time=72.3, text="Just to", words=words)]
     refined = refine_raw_segments(raw)
     assert refined[0]["end_time"] < 68.0
+
+
+def test_splits_multiple_sentences_within_same_whisper_segment():
+    # Two speakers in a single batched Whisper segment ("She's my daughter, Thor. She's a half-breed, Darius.")
+    raw = [_seg(1, "She's my daughter, Thor. She's a half-breed, Darius.", 31.0, step=0.3)]
+    refined = refine_raw_segments(raw)
+    assert [r["original_text"] for r in refined] == [
+        "She's my daughter, Thor.",
+        "She's a half-breed, Darius.",
+    ]
+    assert refined[1]["start_time"] > refined[0]["end_time"]
+

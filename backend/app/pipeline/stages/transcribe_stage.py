@@ -24,6 +24,33 @@ class TranscribeStage(PipelineStage):
         ctx: PipelineContext,
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
+        if ctx.embedded_dialogue_segments and self._transcriber is None:
+            ctx.raw_segments = [
+                RawSegment(
+                    index=seg["index"],
+                    start_time=seg["start_time"],
+                    end_time=seg["end_time"],
+                    text=seg["original_text"],
+                    confidence=seg.get("confidence", 1.0),
+                    words=[],
+                )
+                for seg in ctx.embedded_dialogue_segments
+            ]
+            if on_progress:
+                stream_name = (
+                    f"'{ctx.embedded_subtitle_stream.title}'"
+                    if ctx.embedded_subtitle_stream and ctx.embedded_subtitle_stream.title
+                    else "embedded subtitle track"
+                )
+                await on_progress(
+                    100.0,
+                    None,
+                    0.0,
+                    f"Using {len(ctx.raw_segments)} segments from {stream_name} — skipping Whisper transcription",
+                    None,
+                )
+            return
+
         if not ctx.audio_wav_path:
             raise ValueError("Audio wav path missing from pipeline context")
 

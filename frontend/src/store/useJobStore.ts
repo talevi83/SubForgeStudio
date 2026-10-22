@@ -26,6 +26,7 @@ const DEFAULT_CONFIG: JobConfig = {
   source_language: 'auto',
   vad_filter: true,
   comms_boost: false,
+  use_embedded_subtitles: true,
   detect_onscreen_text: false,
   enable_translation: true,
   target_language: 'Hebrew',

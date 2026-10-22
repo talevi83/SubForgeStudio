@@ -23,7 +23,7 @@ EDGE_DENSITY_THRESHOLD = 0.008
 EDGE_CONTRAST_PIXEL_MIN = 48
 DHASH_MAX_DISTANCE = 6
 RESIZE_W, RESIZE_H = 320, 180
-UPPER_CROP_RATIO = 0.80
+UPPER_CROP_RATIO = 0.94
 
 
 @dataclass
@@ -40,8 +40,8 @@ def _pixels(img: Image.Image) -> list[int]:
 
 def compute_edge_density(image_path: Path) -> float:
     """
-    Crop upper 80% of the image, resize to 320x180 grayscale, run FIND_EDGES,
-    and return the fraction of pixels with high edge contrast.
+    Crop upper 94% of the image (including lower-third chyrons), resize to 320x180 grayscale,
+    run FIND_EDGES, and return the fraction of pixels with high edge contrast.
     """
     with Image.open(image_path) as img:
         gray = img.convert("L")
@@ -63,7 +63,7 @@ def compute_edge_density(image_path: Path) -> float:
 
 
 def compute_dhash(image_path: Path) -> int:
-    """Compute a 64-bit horizontal difference hash (9x8 grayscale) on the upper 80% of the frame."""
+    """Compute a 64-bit horizontal difference hash (9x8 grayscale) on the upper 94% of the frame."""
     with Image.open(image_path) as img:
         gray = img.convert("L")
         w, h = gray.size
@@ -92,7 +92,7 @@ def prefilter_frames_sync(
     Synchronous Pillow pass over `frames` (each having `.path`, `.time`, and optional `.static_until`).
     Returns merged `FrameCluster` items for frames that survive the edge density filter.
     """
-    surviving: List[tuple[Any, int]] = []
+    surviving: List[tuple[Any, int, float]] = []
     for f in frames:
         path = Path(getattr(f, "path", f))
         try:
@@ -100,26 +100,34 @@ def prefilter_frames_sync(
             if density < edge_threshold:
                 continue
             dhash = compute_dhash(path)
-            surviving.append((f, dhash))
+            surviving.append((f, dhash, density))
         except Exception as e:
             logger.debug(f"Could not pre-filter frame {path}: {e}")
             # Keep unreadable/mock frames so tests with synthetic dummy paths don't silently break
-            surviving.append((f, -1))
+            surviving.append((f, -1, 0.0))
 
     clusters: List[FrameCluster] = []
     prev_hash: int | None = None
-    for f, dhash in surviving:
+    best_density: float = 0.0
+    for f, dhash, density in surviving:
         path = Path(getattr(f, "path", f))
         t_start = float(getattr(f, "time", 0.0))
         t_end = max(t_start, float(getattr(f, "static_until", t_start) or t_start))
+        density_jump = best_density > 0 and abs(density - best_density) / best_density >= 0.18
         if (
             clusters
             and prev_hash is not None
             and prev_hash >= 0
             and dhash >= 0
             and hamming_distance(prev_hash, dhash) <= max_hamming
+            and not density_jump
         ):
             clusters[-1].end_time = max(clusters[-1].end_time, t_end, t_start)
+            # Prefer the frame with higher edge density so a fully-settled chyron/title
+            # replaces an earlier pre-chyron or mid-animation frame in the same shot.
+            if density > best_density * 1.005:
+                clusters[-1].representative_path = path
+                best_density = density
         else:
             clusters.append(
                 FrameCluster(
@@ -129,6 +137,7 @@ def prefilter_frames_sync(
                 )
             )
             prev_hash = dhash
+            best_density = density
     return clusters
 
 

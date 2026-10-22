@@ -73,6 +73,8 @@ class Job(SQLModel, table=True):
     vad_filter: bool = Field(default=True)
     # Radio/walkie-talkie friendly audio filtering and Whisper decoding
     comms_boost: bool = Field(default=False)
+    # Extract embedded text-based full dialogue subtitles instead of running Whisper
+    use_embedded_subtitles: bool = Field(default=True)
     # Forced subtitle tracks + Gemini Vision scan for burned-in narrative text
     detect_onscreen_text: bool = Field(default=False)
     enable_translation: bool = Field(default=False)

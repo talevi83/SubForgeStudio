@@ -176,8 +176,15 @@ class SyncStage(PipelineStage):
         report.update({k: summary[k] for k in ("frame_rate", "offset", "jump_count", "jumps")})
         logger.info(f"Sync pass 2: {summary}")
 
+        from app.utils.speaker_split import split_dual_speaker_segments
+
         segments, methods = self._place(cues, final, anchors, reference, ref_starts, ref_info.get("source"),
                                         speech, words, same_language)
+        segments = split_dual_speaker_segments(
+            segments,
+            max_chars_per_line=settings.max_chars_per_line,
+            min_gap=CUE_GAP,
+        )
         report["methods"] = methods
         ctx.refined_segments = segments
         ctx.sync_report = report

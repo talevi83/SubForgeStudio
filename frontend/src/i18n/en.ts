@@ -136,6 +136,10 @@ export const en = {
     onscreenDescription:
       "Scans video frames with Gemini Vision and checks embedded tracks for location titles, timestamps ('One week later...'), plot signs — and the show's burned-in subtitles for speech in other languages.",
     forcedFound: 'Embedded forced track found ({name}) — it will be used instead of scanning frames.',
+    embeddedDialogueFound: 'Found embedded subtitle track ({name}) — will be extracted directly, skipping Whisper transcription.',
+    useEmbeddedTitle: 'Use Embedded Subtitles',
+    useEmbeddedDescription:
+      'If a full subtitle track is present in the video file, extracting it is faster and more accurate than speech recognition. On-screen text OCR will still run.',
     onscreenNeedsKey: 'Frame scanning needs a Gemini API key.',
     estimateTitle: 'Estimated Gemini cost for this file',
     estimateNone: 'No Gemini calls with these options',

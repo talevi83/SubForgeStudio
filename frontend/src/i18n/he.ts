@@ -138,6 +138,10 @@ export const he: Messages = {
     onscreenDescription:
       'סורק פריימים עם Gemini Vision ובודק ערוצים מוטמעים לכותרות מיקום, ציוני זמן ("שבוע לאחר מכן...") ושלטים חשובים לעלילה — וגם את הכתוביות הצרובות של הסדרה לדיבור בשפות אחרות.',
     forcedFound: 'נמצא ערוץ forced מוטמע ({name}) — ישמש במקום סריקת פריימים.',
+    embeddedDialogueFound: 'נמצא ערוץ כתוביות מוטמע ({name}) — יחולץ ישירות לתרגום ויחסוך את תמלול Whisper.',
+    useEmbeddedTitle: 'שימוש בכתוביות מוטמעות',
+    useEmbeddedDescription:
+      'אם קיים ערוץ כתוביות מלא בקובץ הווידאו, חילוץ ישיר שלו מהיר ומדויק יותר מתמלול שמיעתי. סריקת כותרות מהמסך תמשיך כרגיל.',
     onscreenNeedsKey: 'סריקת פריימים דורשת מפתח Gemini.',
     estimateTitle: 'עלות Gemini משוערת לקובץ הזה',
     estimateNone: 'אין קריאות ל־Gemini עם האפשרויות האלה',

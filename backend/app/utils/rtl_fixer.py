@@ -24,14 +24,17 @@ def strip_directional_marks(text: str) -> str:
     return CONTROL_CHARS_PATTERN.sub("", text)
 
 
-def fix_rtl_line(line: str, use_embedding: bool = False) -> str:
+def fix_rtl_line(line: str, use_embedding: bool = True) -> str:
     """
-    Fix BiDi punctuation placement for a single subtitle line containing RTL text.
+    Fix BiDi punctuation placement and mixed LTR/RTL ordering for a single subtitle line.
 
-    By sandwiching the line between RLM characters (start and end), neutral
-    characters such as leading dialogue hyphens ('- ') and trailing punctuation
-    ('?', '!', '.', ',') are forced into the RTL layout context across all
-    standard media players (VLC, MPV, Plex, HTML5 WebVTT).
+    By wrapping the line with RLE (Right-to-Left Embedding, \u202b) and PDF (Pop Directional
+    Formatting, \u202c), media players (Plex, MPV, VLC, ExoPlayer, HTML5 WebVTT) that default
+    to an LTR paragraph base direction will correctly order mixed RTL text containing Latin
+    words, acronyms (e.g. 'GPR', 'API'), and numbers.
+
+    The inner RLM characters force neutral characters (leading dialogue hyphens '- ' and
+    trailing punctuation '?', '!', '.', ',') into the RTL context.
     """
     clean_line = strip_directional_marks(line).strip()
     if not clean_line:
@@ -50,7 +53,7 @@ def fix_rtl_line(line: str, use_embedding: bool = False) -> str:
     return f"{RLM}{clean_line}{RLM}"
 
 
-def apply_rtl_fix(text: str, use_embedding: bool = False) -> str:
+def apply_rtl_fix(text: str, use_embedding: bool = True) -> str:
     """
     Apply BiDi RTL fixes line-by-line to a potentially multi-line subtitle block.
     Safe to call multiple times (idempotent).

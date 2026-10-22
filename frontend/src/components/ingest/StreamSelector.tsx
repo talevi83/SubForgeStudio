@@ -109,11 +109,16 @@ export const StreamSelector: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             {subtitleStreams.map((s) => {
               const forced = s.forced || /forced|signs/i.test(s.title || '');
+              const fullDialogue = s.text_based && !forced && !/commentary|director/i.test(s.title || '');
               return (
                 <span
                   key={s.index}
                   className={`text-[11px] px-2 py-1 rounded-md border ${
-                    forced ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' : 'bg-sunken border-line text-zinc-400'
+                    forced
+                      ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                      : fullDialogue
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-sunken border-line text-zinc-400'
                   }`}
                   title={s.text_based ? t('streams.textSubs') : t('streams.imageSubs')}
                 >

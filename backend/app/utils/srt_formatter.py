@@ -89,30 +89,73 @@ def _get_seg_attr(seg: Any, key: str, default: Any = None) -> Any:
     return getattr(seg, key, default)
 
 
+def _is_bracketed_line(line: str) -> bool:
+    s = line.strip()
+    return s.startswith("[") and s.endswith("]")
+
+
+def _ensure_brackets(text: str) -> str:
+    s = text.strip()
+    if not s:
+        return s
+    if s.startswith("[") and s.endswith("]"):
+        return s
+    lines = [ln.strip("[] ").strip() for ln in s.splitlines() if ln.strip("[] ")]
+    return f"[{' — '.join(lines)}]" if lines else s
+
+
 def _serialize_blocks(
     segments: List[Any],
     use_translated: bool,
     apply_rtl: bool,
     max_chars_per_line: int,
     format_ts,
+    fmt: str = "srt",
 ) -> List[str]:
-    blocks = []
-    ordered = sorted(segments, key=lambda s: float(_get_seg_attr(s, "start_time", 0.0)))
-    for idx, seg in enumerate(ordered, start=1):
+    blocks: List[str] = []
+    ordered = sorted(
+        segments,
+        key=lambda s: (
+            float(_get_seg_attr(s, "start_time", 0.0)),
+            (_get_seg_attr(s, "segment_type") or "DIALOGUE") != "ON_SCREEN",
+        ),
+    )
+
+    def _append_cue(cue_text: str, start_time: float, end_time: float, is_top: bool) -> None:
+        if is_top:
+            cue_text = _ensure_brackets(cue_text)
+        formatted_text = split_long_lines(cue_text, max_chars_per_line=max_chars_per_line)
+        if apply_rtl:
+            formatted_text = apply_rtl_fix(formatted_text)
+        if is_top and fmt == "srt":
+            formatted_text = f"{{\\an8}}{formatted_text}"
+        cue_settings = " line:8%" if (is_top and fmt == "vtt") else ""
+        blocks.append(
+            f"{len(blocks) + 1}\n{format_ts(start_time)} --> {format_ts(end_time)}{cue_settings}\n{formatted_text}\n"
+        )
+
+    for seg in ordered:
         translated = _get_seg_attr(seg, "translated_text")
         original = _get_seg_attr(seg, "original_text", "")
         raw_text = translated if (use_translated and translated) else original
         clean_text = strip_directional_marks((raw_text or "").strip())
         if not clean_text:
             continue
-        formatted_text = split_long_lines(clean_text, max_chars_per_line=max_chars_per_line)
 
-        if apply_rtl:
-            formatted_text = apply_rtl_fix(formatted_text)
-
+        seg_type = _get_seg_attr(seg, "segment_type") or "DIALOGUE"
         start_time = float(_get_seg_attr(seg, "start_time", 0.0))
         end_time = float(_get_seg_attr(seg, "end_time", 0.0))
-        blocks.append(f"{len(blocks) + 1}\n{format_ts(start_time)} --> {format_ts(end_time)}\n{formatted_text}\n")
+        raw_lines = [ln.strip() for ln in clean_text.splitlines() if ln.strip()]
+
+        if seg_type == "ON_SCREEN" or (raw_lines and all(_is_bracketed_line(ln) for ln in raw_lines)):
+            _append_cue(clean_text, start_time, end_time, is_top=True)
+        elif len(raw_lines) >= 2 and _is_bracketed_line(raw_lines[0]):
+            # Separate a bracketed on-screen top line from spoken dialogue below it
+            _append_cue(raw_lines[0], start_time, end_time, is_top=True)
+            _append_cue("\n".join(raw_lines[1:]), start_time, end_time, is_top=False)
+        else:
+            _append_cue(clean_text, start_time, end_time, is_top=False)
+
     return blocks
 
 
@@ -124,7 +167,7 @@ def serialize_to_srt(
 ) -> str:
     """Serialize segment dictionaries or models into a standard .srt file string."""
     return "\n".join(
-        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_srt_timestamp)
+        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_srt_timestamp, fmt="srt")
     )
 
 
@@ -137,6 +180,6 @@ def serialize_to_vtt(
     """Serialize segment dictionaries or models into a WebVTT file string."""
     blocks = ["WEBVTT\n"]
     blocks.extend(
-        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_vtt_timestamp)
+        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_vtt_timestamp, fmt="vtt")
     )
     return "\n".join(blocks)

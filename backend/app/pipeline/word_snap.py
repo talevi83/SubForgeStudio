@@ -46,6 +46,9 @@ def _onsets_after_gaps(regions: Sequence[Tuple[float, float]], min_gap: float) -
     return [b[0] for a, b in zip(regions, regions[1:]) if b[0] - a[1] >= min_gap]
 
 
+from app.utils.text_rules import ends_sentence
+
+
 def snap_word_starts(
     raw_segments: Sequence,
     regions: Sequence[Tuple[float, float]],
@@ -60,11 +63,26 @@ def snap_word_starts(
 
     for seg in raw_segments:
         words: List = list(getattr(seg, "words", None) or [])
-        for w in words:
+        for i, w in enumerate(words):
             stats.words += 1
             # The last onset (after a real pause) that lies inside the word, leaving some of it
             inside = [a for a in onsets[bisect_right(onsets, w.start):bisect_right(onsets, w.end - min_tail)]]
             if not inside:
+                continue
+            # If `w` closes a sentence that began immediately before it ("Military officials.")
+            # and another sentence follows in this segment ("I thought..."), Whisper stretched
+            # `w.end` across the inter-sentence pause. Snapping `w.start` after the pause would
+            # detach "officials." from "Military" and glue it onto "I thought...". Clamp `w.end`
+            # before the pause instead so `w` stays with its own sentence.
+            if (
+                0 < i < len(words) - 1
+                and ends_sentence(getattr(w, "word", "") or "")
+                and not ends_sentence(getattr(words[i - 1], "word", "") or "")
+                and float(w.start) - float(words[i - 1].end) < min_gap
+            ):
+                clamped_end = max(float(w.start) + 0.15, inside[0] - pad)
+                if clamped_end < float(w.end):
+                    w.end = round(clamped_end, 3)
                 continue
             new_start = inside[-1] - pad
             shift = new_start - w.start

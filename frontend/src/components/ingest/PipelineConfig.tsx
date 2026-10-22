@@ -87,6 +87,10 @@ export const PipelineConfig: React.FC = () => {
   const forcedTrack = (probeResult?.subtitle_streams || []).find(
     (s) => s.text_based && (s.forced || /forced|signs/i.test(s.title || ''))
   );
+  // Embedded text-based full dialogue subtitle track that can be extracted directly
+  const dialogueTrack = (probeResult?.subtitle_streams || []).find(
+    (s) => s.text_based && !s.forced && !/forced|signs|commentary|director/i.test(s.title || '')
+  );
   const translationWithoutKey =
     pipelineConfig.enable_translation && !isGeminiReady && !pipelineConfig.gemini_api_key_override;
 
@@ -176,6 +180,28 @@ export const PipelineConfig: React.FC = () => {
                 className="w-4 h-4 rounded border-zinc-700 text-indigo-600 focus:ring-indigo-500 bg-zinc-800 cursor-pointer"
               />
             </label>
+
+            {dialogueTrack && (
+              <div className="mt-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] space-y-1.5">
+                <div className="flex items-start gap-2 text-emerald-300 font-medium">
+                  <FileText className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <span>
+                    {t('config.embeddedDialogueFound', {
+                      name: dialogueTrack.title || dialogueTrack.language || `#${dialogueTrack.index}`,
+                    })}
+                  </span>
+                </div>
+                <label className="pt-1 flex items-center justify-between gap-3 cursor-pointer text-zinc-300 border-t border-emerald-500/20">
+                  <span className="text-[11px]">{t('config.useEmbeddedTitle')}</span>
+                  <input
+                    type="checkbox"
+                    checked={pipelineConfig.use_embedded_subtitles !== false}
+                    onChange={(e) => updatePipelineConfig({ use_embedded_subtitles: e.target.checked })}
+                    className="w-3.5 h-3.5 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-400 bg-zinc-800 cursor-pointer"
+                  />
+                </label>
+              </div>
+            )}
           </div>
         </div>
 

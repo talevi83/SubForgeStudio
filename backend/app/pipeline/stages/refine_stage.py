@@ -144,6 +144,8 @@ _TERMINAL_PUNCT = ('.', '?', '!', '\u2026', '."', '?"', '!"', '.\u201d', '?\u201
 _ANY_PUNCT = _TERMINAL_PUNCT + (',', ';', ':', ',"', ',\u201d')
 _ORPHAN_MAX_WORDS = 3
 _ORPHAN_LEAD = 0.2  # seconds each reattached word is placed before the next line's first word
+_ORPHAN_TAIL_PAD = 0.2  # seconds each reattached ending word extends the previous line
+_UNPUNCTUATED_OPENERS = {"hey", "hi", "hello", "yo", "well", "look", "listen", "wait", "oh"}
 
 
 def _orphan_tail(words: List[Any]) -> List[Any]:
@@ -165,17 +167,83 @@ def _orphan_tail(words: List[Any]) -> List[Any]:
             continue  # "Hey, Commodore, don't": the commas say only the last word is the orphan
         if 0 < len(tail) <= _ORPHAN_MAX_WORDS:
             return tail
+    # Fallback for longer completely unpunctuated Whisper segments that end on a greeting/opener
+    # right before a pause (e.g. "let's get to work got a lot to do let's go hey" | "pete just in time")
+    if len(words) >= 4 and not any(w.word.strip().endswith(_ANY_PUNCT) for w in words):
+        last_bare = bare(words[-1].word)
+        if last_bare in _UNPUNCTUATED_OPENERS:
+            return [words[-1]]
     return []
 
 
-def reattach_orphan_leads(raw_segments: List[RawSegment], min_gap: float = PAUSE_SPLIT) -> List[RawSegment]:
+def _orphan_head(words: List[Any]) -> List[Any]:
+    """Leading 1..3 words that finish a sentence started in the previous segment
+    ("officials. I thought..." -> ["officials."], "it tonight. You getting..." -> ["it", "tonight."]).
+    """
+    head: List[Any] = []
+    for w in words[:_ORPHAN_MAX_WORDS]:
+        head.append(w)
+        if w.word.strip().endswith(_TERMINAL_PUNCT):
+            # Only treat as an orphan tail of the previous sentence if another sentence
+            # follows in the current segment.
+            if len(head) < len(words):
+                return head
+            return []
+    return []
+
+
+def reattach_orphan_tails(raw_segments: List[RawSegment], max_gap: float = 4.0) -> List[RawSegment]:
+    """Move a 1..3 word sentence ending stranded at the start of segment `b` back to segment `a`.
+
+    When Whisper or VAD splits right before the final word(s) of a sentence ("I really can't make" /
+    "it tonight. You getting busy with someone?" or "Military" / "officials. I thought..."), the
+    next subtitle begins with the last word of the previous sentence followed by a period and a
+    new sentence. Reattach that 1..3 word tail to the previous segment so each sentence stays whole.
+    """
+    out = [s for s in raw_segments if s.words]
+    plain = [s for s in raw_segments if not s.words]
+    for a, b in zip(out, out[1:]):
+        if not a.words or not b.words:
+            continue
+        if a.words[-1].word.strip().endswith(_TERMINAL_PUNCT):
+            continue
+        gap = float(b.words[0].start) - float(a.words[-1].end)
+        if gap > max_gap:
+            continue
+        head = _orphan_head(b.words)
+        if not head:
+            continue
+        a_end = float(a.words[-1].end)
+        next_start = float(b.words[len(head)].start)
+        for i, w in enumerate(head):
+            # If the word was snapped across a pause onto the next sentence, pull its timing
+            # back to immediately follow `a` while never crossing `next_start`.
+            if float(w.start) - a_end > 0.6:
+                w.start = round(min(next_start - 0.05 * (len(head) - i), a_end + 0.05 + _ORPHAN_TAIL_PAD * i), 3)
+                w.end = round(min(next_start - 0.02, w.start + _ORPHAN_TAIL_PAD), 3)
+            else:
+                w.end = round(min(float(w.end), max(float(w.start) + 0.1, next_start - 0.02)), 3)
+            a_end = float(w.end)
+        a.words = a.words + head
+        a.text = "".join(w.word for w in a.words).strip()
+        a.end_time = float(a.words[-1].end)
+        b.words = b.words[len(head):]
+        if b.words:
+            b.text = "".join(w.word for w in b.words).strip()
+            b.start_time = float(b.words[0].start)
+    kept = [s for s in out if s.words] + plain
+    kept.sort(key=lambda s: s.start_time)
+    return kept
+
+
+def reattach_orphan_leads(raw_segments: List[RawSegment], min_gap: float = _SEGMENT_PAUSE) -> List[RawSegment]:
     """Move a sentence opener stamped at the tail of the previous line across the pause to its line.
 
     Batched Whisper's word alignment smears across silences the VAD removed: the first word(s) of
     an utterance get the timestamp of the end of the previous one ("...aren't we? Feet" at 11:40,
     "dry on the east beach." at 12:01). The pause split then leaves that stray word on the wrong
     side of the cut, so the subtitle shows a dangling fragment seconds before its sentence. When a
-    line ends mid-sentence and the next line starts across a long pause, the unfinished tail is
+    line ends mid-sentence and the next line starts across a pause, the unfinished tail is
     moved (and retimed) to open the next line.
     """
     out = [s for s in raw_segments if s.words]
@@ -296,6 +364,15 @@ def _collapse_repetitions(toks: List[_Tok]) -> List[_Tok]:
 # 3. Units
 # ---------------------------------------------------------------------------
 
+def _next_sentence_len(toks: List[_Tok], start_idx: int) -> int:
+    count = 0
+    for j in range(start_idx, len(toks)):
+        count += 1
+        if ends_sentence(toks[j].text) or toks[j].seg_end:
+            break
+    return count
+
+
 def _split_units(toks: List[_Tok]) -> List[List[_Tok]]:
     units: List[List[_Tok]] = []
     cur: List[_Tok] = []
@@ -305,9 +382,16 @@ def _split_units(toks: List[_Tok]) -> List[List[_Tok]]:
         if nxt is None:
             break
         gap = nxt.start - tok.end
+        is_paired_exclamation = (
+            len(cur) == 1
+            and _next_sentence_len(toks, i + 1) == 1
+            and gap < _SEGMENT_PAUSE
+            and not tok.seg_end
+        )
         if (
             gap >= _HARD_PAUSE
             or (tok.seg_end and (ends_sentence(tok.text) or gap >= _SEGMENT_PAUSE))
+            or (ends_sentence(tok.text) and not is_paired_exclamation)
         ):
             units.append(cur)
             cur = []
@@ -335,6 +419,16 @@ def _break_cost(toks: List[_Tok], k: int) -> float:
         cost -= 2
     if bare(tok.text) in WEAK_END_WORDS:
         cost += 5
+    # Strongly discourage breaking 1 or 2 words before the end of a sentence
+    # (which strands the last word(s) + period at the start of the next subtitle).
+    if not ends_sentence(tok.text):
+        if ends_sentence(nxt.text) and k + 2 < len(toks):
+            cost += 7.0
+        elif k + 2 < len(toks) and not ends_sentence(nxt.text) and ends_sentence(toks[k + 2].text):
+            cost += 4.5
+    # Also discourage breaking 1 word after a sentence boundary (stranding the opener at the end).
+    if k >= 1 and ends_sentence(toks[k - 1].text) and not ends_sentence(tok.text):
+        cost += 6.0
     return cost
 
 
@@ -503,7 +597,8 @@ def refine_raw_segments(
     target_cps = settings.target_cps if target_cps is None else target_cps
     max_cps = settings.max_cps_warning if max_cps is None else max_cps
     min_gap = settings.min_gap_seconds if min_gap is None else min_gap
-    toks = _collapse_repetitions(_tokens_from_raw(reattach_orphan_leads(split_at_pauses(raw_segments))))
+    prepared = reattach_orphan_tails(reattach_orphan_leads(split_at_pauses(raw_segments)))
+    toks = _collapse_repetitions(_tokens_from_raw(prepared))
     if not toks:
         return []
 
@@ -531,7 +626,9 @@ def refine_raw_segments(
             "confidence": round(sum(t.prob for t in b.toks) / len(b.toks), 2),
             "cps": calculate_cps(text, max(0.1, end - start)),
         })
-    return refined
+    from app.utils.speaker_split import split_dual_speaker_segments
+
+    return split_dual_speaker_segments(refined, max_chars_per_line=max_chars_per_line, min_gap=min_gap)
 
 
 # ---------------------------------------------------------------------------
@@ -617,12 +714,12 @@ def merge_timeline(
     """
     Merge ON_SCREEN captions into the spoken timeline, sorted by start time and re-indexed 1..N.
 
-    - No overlap: the caption is inserted as its own entry.
+    - No overlap: the caption is inserted as its own ON_SCREEN entry.
     - Minor overlap (less than half of the shorter of the two): the caption is trimmed to the
       largest free window so both stay clean consecutive entries — if that window is at least
       1s long.
-    - Simultaneous (or no usable free window): the bracketed caption is prepended as the top
-      line of every spoken segment it substantially overlaps.
+    - Simultaneous (or no usable free window): the caption is kept as its own standalone
+      ON_SCREEN entry (displayed at the top of the screen while spoken dialogue appears at the bottom).
     """
     min_gap = settings.min_gap_seconds if min_gap is None else min_gap
     result = [dict(s) for s in spoken]
@@ -633,27 +730,24 @@ def merge_timeline(
         text = caption["original_text"].strip()
         if not text:
             continue
+        caption.setdefault("segment_type", SegmentType.ON_SCREEN.value)
         overlaps = [(s, _overlap(s, caption)) for s in spoken_view if _overlap(s, caption) > 0]
         if not overlaps:
             result.append(caption)
             continue
 
         caption_len = caption["end_time"] - caption["start_time"]
+        free_start, free_end = _free_window(caption, spoken_view, min_gap)
         simultaneous = [
             s for s, ov in overlaps
-            if ov >= 0.5 * min(caption_len, s["end_time"] - s["start_time"])
+            if ov >= 0.5 * caption_len
         ]
-        if not simultaneous:
-            free_start, free_end = _free_window(caption, spoken_view, min_gap)
-            if free_end - free_start >= _MIN_STANDALONE_ONSCREEN:
-                caption["start_time"], caption["end_time"] = round(free_start, 3), round(free_end, 3)
-                result.append(caption)
-                continue
-            simultaneous = [max(overlaps, key=lambda o: o[1])[0]]
+        if not simultaneous and free_end - free_start >= _MIN_STANDALONE_ONSCREEN:
+            caption["start_time"], caption["end_time"] = round(free_start, 3), round(free_end, 3)
+            result.append(caption)
+            continue
 
-        for s in simultaneous:
-            if text not in s["original_text"]:
-                s["original_text"] = f"{text}\n{s['original_text']}"
+        result.append(caption)
 
     result.sort(key=lambda s: (s["start_time"], s.get("segment_type") != SegmentType.ON_SCREEN.value))
     for i, seg in enumerate(result, start=1):
@@ -748,13 +842,36 @@ class RefineStage(PipelineStage):
         if on_progress:
             await on_progress(10.0, None, None, "Refining subtitle segments and timing...", None)
 
-        spoken = refine_raw_segments(
-            ctx.raw_segments,
-            max_chars_per_line=settings.max_chars_per_line,
-        )
+        from app.utils.speaker_split import split_dual_speaker_segments
+
+        if ctx.embedded_dialogue_segments:
+            spoken = [
+                {
+                    "index": i + 1,
+                    "start_time": float(seg["start_time"]),
+                    "end_time": float(seg["end_time"]),
+                    "original_text": seg["original_text"],
+                    "translated_text": None,
+                    "translation_failed": False,
+                    "segment_type": seg.get("segment_type", SegmentType.DIALOGUE.value),
+                    "confidence": float(seg.get("confidence", 1.0)),
+                }
+                for i, seg in enumerate(ctx.embedded_dialogue_segments)
+            ]
+        else:
+            spoken = refine_raw_segments(
+                ctx.raw_segments,
+                max_chars_per_line=settings.max_chars_per_line,
+            )
+            foreign_audio = refine_raw_segments(ctx.foreign_audio_segments, max_chars_per_line=settings.max_chars_per_line)
+            spoken = merge_foreign(spoken, ctx.foreign_spans, ctx.foreign_ocr_segments, foreign_audio)
+
         comms = classify_comms(spoken) if ctx.comms_boost else 0
-        foreign_audio = refine_raw_segments(ctx.foreign_audio_segments, max_chars_per_line=settings.max_chars_per_line)
-        spoken = merge_foreign(spoken, ctx.foreign_spans, ctx.foreign_ocr_segments, foreign_audio)
+        spoken = split_dual_speaker_segments(
+            spoken,
+            max_chars_per_line=settings.max_chars_per_line,
+            min_gap=settings.min_gap_seconds,
+        )
         foreign = sum(1 for s in spoken if s.get("segment_type") == SegmentType.FOREIGN.value)
         ctx.refined_segments = merge_timeline(spoken, ctx.onscreen_segments, settings.max_chars_per_line)
 

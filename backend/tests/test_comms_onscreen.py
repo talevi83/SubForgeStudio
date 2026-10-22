@@ -31,7 +31,7 @@ from app.pipeline.stages.refine_stage import classify_comms, is_comms_text, merg
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.providers.transcription.base import BaseTranscriber
 from app.providers.translation.base import TranslatableSegment
-from app.utils.rtl_fixer import RLM, apply_rtl_fix
+from app.utils.rtl_fixer import RLM, RLE, PDF, apply_rtl_fix
 from app.utils.srt_formatter import serialize_to_srt
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
@@ -70,18 +70,23 @@ def test_minor_overlap_is_trimmed_to_a_clean_separate_entry():
     assert merged[0]["original_text"] == "We move at dawn."
 
 
-def test_simultaneous_caption_is_prepended_above_spoken_line():
+def test_simultaneous_caption_stays_separate_onscreen_entry():
     spoken = [_spoken(1, 30.0, 33.0, "Get everyone inside.")]
     merged = merge_timeline(spoken, [_onscreen(29.8, 33.2, "[Damascus, Syria]")])
-    assert len(merged) == 1
-    assert merged[0]["original_text"] == "[Damascus, Syria]\nGet everyone inside."
-    assert merged[0]["segment_type"] == "DIALOGUE"
+    assert len(merged) == 2
+    assert merged[0]["original_text"] == "[Damascus, Syria]"
+    assert merged[0]["segment_type"] == "ON_SCREEN"
+    assert merged[1]["original_text"] == "Get everyone inside."
+    assert merged[1]["segment_type"] == "DIALOGUE"
 
 
-def test_caption_spanning_several_lines_is_prepended_to_each():
+def test_caption_spanning_several_lines_stays_single_onscreen_entry():
     spoken = [_spoken(1, 5.0, 6.5, "Move."), _spoken(2, 6.6, 8.0, "Now!")]
     merged = merge_timeline(spoken, [_onscreen(5.0, 8.0, "[0400 HOURS]")])
-    assert all(m["original_text"].startswith("[0400 HOURS]\n") for m in merged)
+    assert len(merged) == 3
+    assert merged[0]["segment_type"] == "ON_SCREEN"
+    assert merged[0]["original_text"] == "[0400 HOURS]"
+    assert [m["original_text"] for m in merged[1:]] == ["Move.", "Now!"]
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +123,27 @@ def test_format_onscreen_text():
     assert format_onscreen_text("   ") == ""
 
 
+def test_filters_random_documents_and_show_title_but_keeps_messages_and_titles():
+    dets = [
+        FrameDetection(10.0, "THE BLACK DAGGER BROTHERHOOD"),
+        FrameDetection(20.0, "CALWELL POLICE DEPARTMENT ARREST REPORT"),
+        FrameDetection(30.0, "Summer 2018"),
+        FrameDetection(40.0, "Meet me at the warehouse at midnight."),
+        FrameDetection(50.0, "DR. JAN FRANCKE\nINTERNATIONAL GPR EXPERT"),
+    ]
+    segs = merge_frame_detections(
+        dets,
+        frame_interval=2.0,
+        drop_tags=True,
+        file_name="The.Black.Dagger.Brotherhood.S01E01.1080p.mkv",
+    )
+    assert [s["original_text"] for s in segs] == [
+        "[Summer 2018]",
+        "[Meet me at the warehouse at midnight.]",
+        "[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]",
+    ]
+
+
 def test_select_frames_prefers_gaps_and_cuts_and_skips_static_repeats():
     frames = [Frame(t, Path(f"{t}.jpg"), change=c) for t, c in [
         (0, 1.0), (2, 0.01), (4, 0.005), (6, 0.3), (8, 0.02), (10, 0.05), (12, 0.4)]]
@@ -130,6 +156,39 @@ def test_select_frames_prefers_gaps_and_cuts_and_skips_static_repeats():
     assert [f.time for f in select_frames(frames, speech, budget=2)] == [0, 12]
 
 
+def test_select_frames_reserves_budget_for_speech_chyrons():
+    # Many silent non-cut frames (priority 1) must not starve speech cuts/chyrons (priority 2)
+    frames = []
+    # 15 non-cut frames inside a silent gap (t=0..28)
+    frames.append(Frame(0.0, Path("0.jpg"), change=1.0))
+    for k in range(1, 15):
+        frames.append(Frame(float(k * 2), Path(f"{k*2}.jpg"), change=0.05))
+    # 10 frames during speech (t=30..48), with a chyron cut at t=36
+    speech = [(29.0, 50.0)]
+    for k in range(15, 25):
+        t = float(k * 2)
+        c = 0.25 if t == 36.0 else 0.05
+        frames.append(Frame(t, Path(f"{int(t)}.jpg"), change=c))
+    chosen_times = [f.time for f in select_frames(frames, speech, budget=10)]
+    assert 36.0 in chosen_times  # speech cut / chyron frame is kept despite many gap frames
+
+
+def test_partial_typewriter_reveals_merge_into_complete_title():
+    dets = [
+        FrameDetection(382.0, "THE MESA DRI"),
+        FrameDetection(384.0, "THE MESA DRILL SITE"),
+        FrameDetection(500.0, "BARD\nIGATOR"),
+        FrameDetection(502.0, "ERIK BARD\nPRINCIPAL INVESTIGATOR"),
+    ]
+    segs = merge_frame_detections(dets, frame_interval=2.0)
+    assert [s["original_text"] for s in segs] == [
+        "[THE MESA DRILL SITE]",
+        "[ERIK BARD — PRINCIPAL INVESTIGATOR]",
+    ]
+    assert segs[0]["start_time"] == 382.0 and segs[0]["end_time"] == 385.0
+    assert segs[1]["start_time"] == 500.0 and segs[1]["end_time"] == 503.0
+
+
 # ---------------------------------------------------------------------------
 # RTL handling of bracketed Hebrew titles
 # ---------------------------------------------------------------------------
@@ -137,7 +196,7 @@ def test_select_frames_prefers_gaps_and_cuts_and_skips_static_repeats():
 def test_rtl_fixer_wraps_bracketed_hebrew_title():
     title = "[שבוע אחד לאחר מכן...]"
     fixed = apply_rtl_fix(title)
-    assert fixed == f"{RLM}{title}{RLM}"
+    assert fixed == f"{RLE}{RLM}{title}{RLM}{PDF}"
     assert apply_rtl_fix(fixed) == fixed  # idempotent
 
 
@@ -145,7 +204,8 @@ def test_rtl_export_of_title_above_dialogue():
     seg = {"start_time": 1.0, "end_time": 3.0, "original_text": "x",
            "translated_text": "[דמשק, סוריה]\n- קיבלתי, עבור."}
     srt = serialize_to_srt([seg], use_translated=True, apply_rtl=True)
-    assert f"{RLM}[דמשק, סוריה]{RLM}\n{RLM}- קיבלתי, עבור.{RLM}" in srt
+    assert f"{{\\an8}}{RLE}{RLM}[דמשק, סוריה]{RLM}{PDF}" in srt
+    assert f"{RLE}{RLM}- קיבלתי, עבור.{RLM}{PDF}" in srt
 
 
 # ---------------------------------------------------------------------------
@@ -331,8 +391,8 @@ def test_e2e_forced_track_becomes_onscreen_segments(tmp_path, monkeypatch):
     texts = [(s["segment_type"], s["original_text"]) for s in segs]
     assert texts[0] == ("ON_SCREEN", "One week later...")
     assert ("COMMS", "Copy that, over.") in texts
-    # "Tehran, Iran" (5.0-7.0) is on screen while "Move out now." (5.2-6.0) is spoken -> prepended
-    assert any(t.startswith("Tehran, Iran\nMove out now.") for _, t in texts)
+    assert ("ON_SCREEN", "Tehran, Iran") in texts
+    assert ("DIALOGUE", "Move out now.") in texts
     assert [s["index"] for s in segs] == list(range(1, len(segs) + 1))
     assert job["comms_boost"] is True and job["detect_onscreen_text"] is True
 

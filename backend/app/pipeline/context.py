@@ -42,6 +42,7 @@ class PipelineContext:
     detected_language: Optional[str] = None
     vad_filter: bool = True
     comms_boost: bool = False
+    use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
@@ -56,6 +57,9 @@ class PipelineContext:
     gemini_thinking: Optional[str] = None  # per-run override of the translation thinking level
     translation_hint: Optional[str] = None  # note that applies only to the rows being re-translated
     raw_segments: List[RawSegment] = field(default_factory=list)
+    # Embedded full dialogue subtitle track extracted from video container (skips Whisper transcription)
+    embedded_dialogue_segments: List[Dict[str, Any]] = field(default_factory=list)
+    embedded_subtitle_stream: Optional[SubtitleStreamInfo] = None
     # ON_SCREEN segments from forced tracks / frame OCR, merged into the timeline by RefineStage
     onscreen_segments: List[Dict[str, Any]] = field(default_factory=list)
     # Passages spoken in another language (or speech Whisper produced nothing for):

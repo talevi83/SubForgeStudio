@@ -28,6 +28,11 @@ class SubtitleStreamInfo(BaseModel):
         title = (self.title or "").lower()
         return self.forced or "forced" in title or "signs" in title
 
+    @property
+    def looks_sdh(self) -> bool:
+        title = (self.title or "").lower()
+        return any(k in title for k in ("sdh", "hearing", "deaf", "(cc)", "[cc]"))
+
 
 class ProbePathRequest(BaseModel):
     file_path: str = Field(description="Direct absolute path on the local filesystem")
@@ -51,6 +56,7 @@ class JobConfig(BaseModel):
     source_language: Optional[str] = "auto"
     vad_filter: bool = True
     comms_boost: bool = False
+    use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
@@ -225,6 +231,7 @@ class JobResponse(BaseModel):
     detected_language: Optional[str] = None
     vad_filter: bool = True
     comms_boost: bool = False
+    use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"

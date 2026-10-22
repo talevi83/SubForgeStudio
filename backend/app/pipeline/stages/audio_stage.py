@@ -153,6 +153,46 @@ class AudioExtractionStage(PipelineStage):
         if on_progress:
             await on_progress(0.0, None, None, "Starting audio extraction...", None)
 
+        if ctx.use_embedded_subtitles and not ctx.sync_cues and ctx.subtitle_streams:
+            from app.pipeline.stages.ocr_stage import pick_dialogue_track, extract_dialogue_track
+
+            track = pick_dialogue_track(
+                ctx.subtitle_streams,
+                source_language=ctx.source_language,
+                audio_streams=ctx.audio_streams,
+                selected_audio_stream=ctx.selected_audio_stream,
+            )
+            if track:
+                try:
+                    dialogue_segs, onscreen_segs = await extract_dialogue_track(
+                        ctx.video_path, track, duration=ctx.duration
+                    )
+                    min_cues = max(5, int((ctx.duration or 0.0) / 45.0))
+                    if len(dialogue_segs) >= min_cues:
+                        ctx.embedded_dialogue_segments = dialogue_segs
+                        ctx.embedded_subtitle_stream = track
+                        if onscreen_segs:
+                            ctx.onscreen_segments.extend(onscreen_segs)
+                        if not ctx.detected_language or ctx.detected_language.lower() in ("auto", "none"):
+                            ctx.detected_language = track.language or "en"
+                        track_desc = f"'{track.title}'" if track.title else f"track #{track.index} ({track.language})"
+                        logger.info(
+                            f"Using embedded dialogue subtitle track #{track.index} "
+                            f"({track.title or track.language}, {len(dialogue_segs)} cues). "
+                            "Skipping audio extraction."
+                        )
+                        if on_progress:
+                            await on_progress(
+                                100.0,
+                                None,
+                                0.0,
+                                f"Extracted {len(dialogue_segs)} cues from embedded {track_desc} — audio extraction skipped",
+                                None,
+                            )
+                        return
+                except Exception as e:
+                    logger.warning(f"Could not extract embedded dialogue track #{track.index}: {e}")
+
         output_wav = settings.storage_dir / "audio" / f"{ctx.job_id}.wav"
         output_wav.parent.mkdir(parents=True, exist_ok=True)
 

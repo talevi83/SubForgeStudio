@@ -32,9 +32,47 @@ export const VideoSyncPlayer: React.FC = () => {
     () => [...(activeJob?.segments || [])].sort((a, b) => a.start_time - b.start_time),
     [activeJob?.segments]
   );
-  const activeSeg = useMemo(() => {
-    const i = findSegmentAt(segments, currentTime);
-    return i >= 0 ? segments[i] : null;
+  const { topOverlays, bottomOverlays } = useMemo(() => {
+    const active = segments.filter((s) => currentTime >= s.start_time && currentTime <= s.end_time);
+    const top: Array<{ key: string; orig?: string; trans?: string }> = [];
+    const bottom: Array<{ key: string; orig?: string; trans?: string }> = [];
+
+    const isBracketed = (line: string) => {
+      const s = line.trim();
+      return s.startsWith('[') && s.endsWith(']');
+    };
+    const ensureBrackets = (text: string) => {
+      const s = text.trim();
+      if (!s) return s;
+      return s.startsWith('[') && s.endsWith(']') ? s : `[${s}]`;
+    };
+
+    for (const seg of active) {
+      const orig = (seg.original_text || '').trim();
+      const trans = (seg.translated_text || '').trim();
+      const checkText = trans || orig;
+      const lines = checkText.split('\n').map((l) => l.trim()).filter(Boolean);
+
+      if (seg.segment_type === 'ON_SCREEN' || (lines.length > 0 && lines.every(isBracketed))) {
+        top.push({
+          key: `top-${seg.index}`,
+          orig: orig ? ensureBrackets(orig) : undefined,
+          trans: trans ? ensureBrackets(trans) : undefined,
+        });
+      } else if (lines.length >= 2 && isBracketed(lines[0])) {
+        const origLines = orig.split('\n').map((l) => l.trim()).filter(Boolean);
+        const transLines = trans.split('\n').map((l) => l.trim()).filter(Boolean);
+        const topOrig = origLines.length >= 2 && isBracketed(origLines[0]) ? origLines[0] : undefined;
+        const botOrig = origLines.length >= 2 && isBracketed(origLines[0]) ? origLines.slice(1).join('\n') : orig;
+        const topTrans = transLines.length >= 2 && isBracketed(transLines[0]) ? transLines[0] : undefined;
+        const botTrans = transLines.length >= 2 && isBracketed(transLines[0]) ? transLines.slice(1).join('\n') : trans;
+        top.push({ key: `top-${seg.index}`, orig: topOrig || topTrans, trans: topTrans });
+        bottom.push({ key: `bot-${seg.index}`, orig: botOrig, trans: botTrans });
+      } else {
+        bottom.push({ key: `bot-${seg.index}`, orig: orig || undefined, trans: trans || undefined });
+      }
+    }
+    return { topOverlays: top, bottomOverlays: bottom };
   }, [segments, currentTime]);
 
   // Smooth time tracking while playing (timeupdate only fires ~4x per second).
@@ -251,31 +289,57 @@ export const VideoSyncPlayer: React.FC = () => {
           </div>
         )}
 
-        {activeSeg && (
-          <div className="absolute bottom-6 inset-x-4 flex flex-col items-center pointer-events-none z-10">
-            <div
-              className={`max-w-[90%] bg-black/80 px-4 py-2 rounded-lg text-center space-y-1 ${
-                isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
-              }`}
-            >
-              {showOriginal && activeSeg.original_text && (
-                <p
-                  className={`font-medium leading-relaxed whitespace-pre-line ${
-                    activeSeg.segment_type === 'ON_SCREEN' ? 'text-cyan-200 italic' : 'text-white'
-                  }`}
-                >
-                  {activeSeg.original_text}
-                </p>
-              )}
-              {showTranslated && activeSeg.translated_text && (
-                <p
-                  dir={isRtlTarget ? 'rtl' : 'ltr'}
-                  className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
-                >
-                  {activeSeg.translated_text}
-                </p>
-              )}
-            </div>
+        {topOverlays.length > 0 && (
+          <div className="absolute top-6 inset-x-4 flex flex-col items-center gap-1.5 pointer-events-none z-10">
+            {topOverlays.map((item) => (
+              <div
+                key={item.key}
+                className={`max-w-[90%] bg-black/80 px-4 py-1.5 rounded-lg text-center space-y-1 border border-cyan-500/25 ${
+                  isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
+                }`}
+              >
+                {showOriginal && item.orig && (
+                  <p className="font-medium leading-relaxed whitespace-pre-line text-cyan-200 italic">
+                    {item.orig}
+                  </p>
+                )}
+                {showTranslated && item.trans && (
+                  <p
+                    dir={isRtlTarget ? 'rtl' : 'ltr'}
+                    className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
+                  >
+                    {item.trans}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {bottomOverlays.length > 0 && (
+          <div className="absolute bottom-6 inset-x-4 flex flex-col items-center gap-1.5 pointer-events-none z-10">
+            {bottomOverlays.map((item) => (
+              <div
+                key={item.key}
+                className={`max-w-[90%] bg-black/80 px-4 py-2 rounded-lg text-center space-y-1 ${
+                  isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
+                }`}
+              >
+                {showOriginal && item.orig && (
+                  <p className="font-medium leading-relaxed whitespace-pre-line text-white">
+                    {item.orig}
+                  </p>
+                )}
+                {showTranslated && item.trans && (
+                  <p
+                    dir={isRtlTarget ? 'rtl' : 'ltr'}
+                    className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
+                  >
+                    {item.trans}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
