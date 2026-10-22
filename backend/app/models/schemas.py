@@ -56,8 +56,10 @@ class JobConfig(BaseModel):
     source_language: Optional[str] = "auto"
     vad_filter: bool = True
     comms_boost: bool = False
+    high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
+    onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
     enable_translation: bool = False
     target_language: str = "Hebrew"
     # None = use the translation model chosen on the Settings screen
@@ -231,8 +233,10 @@ class JobResponse(BaseModel):
     detected_language: Optional[str] = None
     vad_filter: bool = True
     comms_boost: bool = False
+    high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
+    onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"

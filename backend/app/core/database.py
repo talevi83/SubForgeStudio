@@ -29,6 +29,8 @@ _ADDED_COLUMNS = {
         "sync_file_name": "VARCHAR",
         "sync_source_json": "VARCHAR",
         "sync_report_json": "VARCHAR",
+        "onscreen_sensitivity": "INTEGER NOT NULL DEFAULT 2",
+        "high_speech_sensitivity": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "subtitle_segments": {
         "translation_failed": "BOOLEAN NOT NULL DEFAULT 0",

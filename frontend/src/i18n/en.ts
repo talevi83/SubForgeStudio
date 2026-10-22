@@ -141,6 +141,19 @@ export const en = {
     useEmbeddedDescription:
       'If a full subtitle track is present in the video file, extracting it is faster and more accurate than speech recognition. On-screen text OCR will still run.',
     onscreenNeedsKey: 'Frame scanning needs a Gemini API key.',
+    onscreenSensitivityLabel: 'On-Screen Text Sensitivity',
+    onscreenSensitivityStrict: 'Strict (Titles & Chyrons)',
+    onscreenSensitivityBalanced: 'Balanced (Recommended)',
+    onscreenSensitivityBroad: 'Broad (Include Signs & Docs)',
+    onscreenSensitivityDescStrict:
+      'Captures only speaker chyrons, time/location jumps, and phone texts. Ignores signs and documents.',
+    onscreenSensitivityDescBalanced:
+      'Captures chyrons, narrative titles, messages, and key plot signs framed in close-up.',
+    onscreenSensitivityDescBroad:
+      'Captures almost all readable on-screen text, including signs, HUD headers, and close-up documents.',
+    highSpeechSensitivityTitle: 'High Speech Sensitivity (Catch Whispers)',
+    highSpeechSensitivityDesc:
+      'Relaxes voice activity thresholds to catch quiet whispers, rapid speech, and dialogue over loud background music.',
     estimateTitle: 'Estimated Gemini cost for this file',
     estimateNone: 'No Gemini calls with these options',
     estimateBreakdown: 'Breakdown',

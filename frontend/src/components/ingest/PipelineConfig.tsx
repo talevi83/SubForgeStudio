@@ -19,39 +19,43 @@ export const FeatureToggle: React.FC<{
   checked: boolean;
   onChange: (value: boolean) => void;
   note?: React.ReactNode;
-}> = ({ icon, title, description, checked, onChange, note }) => (
-  <label
-    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+  children?: React.ReactNode;
+}> = ({ icon, title, description, checked, onChange, note, children }) => (
+  <div
+    className={`p-3 rounded-lg border transition-colors ${
       checked ? 'bg-indigo-500/10 border-indigo-500/40' : 'bg-surface border-line hover:border-zinc-600'
     }`}
   >
-    <span className="text-lg leading-none mt-0.5" aria-hidden>
-      {icon}
-    </span>
-    <span className="flex-1 min-w-0">
-      <span className="block text-xs font-semibold text-zinc-200">{title}</span>
-      <span className="block text-[11px] text-zinc-400 mt-0.5 leading-relaxed">{description}</span>
-      {note && <span className="block text-[11px] mt-1">{note}</span>}
-    </span>
-    <input
-      type="checkbox"
-      role="switch"
-      aria-checked={checked}
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-      className="sr-only peer"
-    />
-    <span
-      className={`relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 ${
-        checked ? 'bg-indigo-600' : 'bg-zinc-700'
-      }`}
-      aria-hidden
-    >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${checked ? 'start-4.5' : 'start-0.5'}`}
+    <label className="flex items-start gap-3 cursor-pointer">
+      <span className="text-lg leading-none mt-0.5" aria-hidden>
+        {icon}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-xs font-semibold text-zinc-200">{title}</span>
+        <span className="block text-[11px] text-zinc-400 mt-0.5 leading-relaxed">{description}</span>
+        {note && <span className="block text-[11px] mt-1">{note}</span>}
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only peer"
       />
-    </span>
-  </label>
+      <span
+        className={`relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 ${
+          checked ? 'bg-indigo-600' : 'bg-zinc-700'
+        }`}
+        aria-hidden
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${checked ? 'start-4.5' : 'start-0.5'}`}
+        />
+      </span>
+    </label>
+    {children}
+  </div>
 );
 
 const selectClass =
@@ -177,6 +181,18 @@ export const PipelineConfig: React.FC = () => {
                 type="checkbox"
                 checked={pipelineConfig.vad_filter}
                 onChange={(e) => updatePipelineConfig({ vad_filter: e.target.checked })}
+                className="w-4 h-4 rounded border-zinc-700 text-indigo-600 focus:ring-indigo-500 bg-zinc-800 cursor-pointer"
+              />
+            </label>
+            <label className="pt-1 flex items-center justify-between gap-3 cursor-pointer">
+              <span>
+                <span className="text-zinc-300 font-medium block">{t('config.highSpeechSensitivityTitle')}</span>
+                <span className="text-[11px] text-zinc-500 block">{t('config.highSpeechSensitivityDesc')}</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={pipelineConfig.high_speech_sensitivity ?? false}
+                onChange={(e) => updatePipelineConfig({ high_speech_sensitivity: e.target.checked })}
                 className="w-4 h-4 rounded border-zinc-700 text-indigo-600 focus:ring-indigo-500 bg-zinc-800 cursor-pointer"
               />
             </label>
@@ -370,7 +386,57 @@ export const PipelineConfig: React.FC = () => {
               <span className="text-amber-300">{t('config.onscreenNeedsKey')}</span>
             ) : null)
           }
-        />
+        >
+          {pipelineConfig.detect_onscreen_text && !forcedTrack && (
+            <div className="mt-3 pt-3 border-t border-indigo-500/20 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-zinc-300 font-medium">
+                <span>{t('config.onscreenSensitivityLabel')}</span>
+                <span className="text-indigo-400 font-semibold text-[11px]">
+                  {(pipelineConfig.onscreen_sensitivity ?? 2) === 1 && t('config.onscreenSensitivityStrict')}
+                  {(pipelineConfig.onscreen_sensitivity ?? 2) === 2 && t('config.onscreenSensitivityBalanced')}
+                  {(pipelineConfig.onscreen_sensitivity ?? 2) === 3 && t('config.onscreenSensitivityBroad')}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={1}
+                value={pipelineConfig.onscreen_sensitivity ?? 2}
+                onChange={(e) => updatePipelineConfig({ onscreen_sensitivity: Number(e.target.value) })}
+                className="w-full accent-indigo-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-zinc-400">
+                <button
+                  type="button"
+                  onClick={() => updatePipelineConfig({ onscreen_sensitivity: 1 })}
+                  className={`hover:text-zinc-200 cursor-pointer ${(pipelineConfig.onscreen_sensitivity ?? 2) === 1 ? 'text-indigo-300 font-bold' : ''}`}
+                >
+                  1 · {t('config.onscreenSensitivityStrict')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePipelineConfig({ onscreen_sensitivity: 2 })}
+                  className={`hover:text-zinc-200 cursor-pointer ${(pipelineConfig.onscreen_sensitivity ?? 2) === 2 ? 'text-indigo-300 font-bold' : ''}`}
+                >
+                  2 · {t('config.onscreenSensitivityBalanced')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePipelineConfig({ onscreen_sensitivity: 3 })}
+                  className={`hover:text-zinc-200 cursor-pointer ${(pipelineConfig.onscreen_sensitivity ?? 2) === 3 ? 'text-indigo-300 font-bold' : ''}`}
+                >
+                  3 · {t('config.onscreenSensitivityBroad')}
+                </button>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                {(pipelineConfig.onscreen_sensitivity ?? 2) === 1 && t('config.onscreenSensitivityDescStrict')}
+                {(pipelineConfig.onscreen_sensitivity ?? 2) === 2 && t('config.onscreenSensitivityDescBalanced')}
+                {(pipelineConfig.onscreen_sensitivity ?? 2) === 3 && t('config.onscreenSensitivityDescBroad')}
+              </p>
+            </div>
+          )}
+        </FeatureToggle>
       </div>
 
       {/* Cost estimate for this file */}

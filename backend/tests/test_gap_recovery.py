@@ -234,10 +234,14 @@ def test_hud_labels_and_repeated_signs_are_not_on_screen_titles():
         FrameDetection(1700.0, "JTF-GTMO FUEL DEPOT"),                            # much later: shown again
         FrameDetection(1800.0, "Siberia"),                                        # a 7-letter one-word place title stays
     ]
-    segs = merge_frame_detections(dets, frame_interval=2.0, drop_tags=True, repeat_window=180.0)
+    # In sensitivity=1 (Strict), 7-letter callsigns like VULTURE are dropped
+    segs = merge_frame_detections(dets, frame_interval=2.0, drop_tags=True, repeat_window=180.0, sensitivity=1)
     assert [(s["start_time"], s["original_text"]) for s in segs] == [
         (1398.0, "[JTF-GTMO FUEL DEPOT]"), (1700.0, "[JTF-GTMO FUEL DEPOT]"), (1800.0, "[Siberia]"),
     ]
+    # In sensitivity=2 (Balanced), 1-word signs > 5 chars like VULTURE / PENTAGON are kept
+    segs2 = merge_frame_detections(dets, frame_interval=2.0, drop_tags=True, repeat_window=180.0, sensitivity=2)
+    assert (848.0, "[VULTURE]") in [(s["start_time"], s["original_text"]) for s in segs2]
     # Burned-in subtitles keep short words and repeats
     subs = merge_frame_detections([FrameDetection(10.0, "Да."), FrameDetection(20.0, "Да.")], frame_interval=2.0, bracket=False)
     assert [s["original_text"] for s in subs] == ["Да.", "Да."]

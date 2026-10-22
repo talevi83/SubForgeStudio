@@ -64,6 +64,7 @@ class TranscribeStage(PipelineStage):
                 vad_filter=ctx.vad_filter,
                 comms_boost=ctx.comms_boost,
                 context_notes=ctx.context_notes,
+                high_speech_sensitivity=ctx.high_speech_sensitivity,
             )
 
         start_time = time.time()

@@ -73,8 +73,8 @@ def pick_forced_track(streams: Sequence[SubtitleStreamInfo]) -> Optional[Subtitl
 _PURE_MUSIC_LINE = re.compile(r"^[\s♪♫#*+\-—–~]+$")
 _INLINE_MUSIC_NOTES = re.compile(r"[♪♫]")
 _SDH_SOUND_EFFECT = re.compile(
-    r"\[(?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groans|gasps|sighs|screaming|cheering|chatter|whispering|coughing|snickers|footsteps|thunder|wind|silence|beep|grunt|grunts|panting|engine|stammer|stammers)[^\]]*?)\]|"
-    r"\((?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groans|gasps|sighs|screaming|cheering|chatter|whispering|coughing|snickers|footsteps|thunder|wind|silence|beep|grunt|grunts|panting|engine|stammer|stammers)[^)]*?)\)",
+    r"\[(?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groan|groans|gasp|gasps|sigh|sighs|scream|screams|screaming|cheer|cheers|cheering|chatter|whisper|whispers|whispering|cough|coughing|snicker|snickers|footstep|footsteps|thunder|wind|silence|beep|grunt|grunts|pant|panting|engine|stammer|stammers)[^\]]*?)\]|"
+    r"\((?:[a-z0-9\s._'-]*?(?:music|applause|laughter|groan|groans|gasp|gasps|sigh|sighs|scream|screams|screaming|cheer|cheers|cheering|chatter|whisper|whispers|whispering|cough|coughing|snicker|snickers|footstep|footsteps|thunder|wind|silence|beep|grunt|grunts|pant|panting|engine|stammer|stammers)[^)]*?)\)",
     re.IGNORECASE,
 )
 _SDH_INLINE_SOUND = re.compile(r"\[[a-zA-Z\s_-]{2,35}\]|\([a-zA-Z\s_-]{2,35}\)")
@@ -99,7 +99,7 @@ def clean_embedded_dialogue_text(text: str, is_sdh: bool = False) -> str:
         # Drop pure bracketed/parenthesized sound descriptions
         if (l.startswith("(") and l.endswith(")")) or (is_sdh and l.startswith("[") and l.endswith("]")):
             inner = l[1:-1].strip()
-            if any(k in inner.lower() for k in ("music", "sound", "applause", "groan", "sigh", "pant", "gasp", "chatter", "cough", "cheer", "laugh", "stammer")):
+            if any(k in inner.lower() for k in ("music", "sound", "applause", "groan", "sigh", "pant", "gasp", "chatter", "cough", "cheer", "laugh", "stammer", "whisper")):
                 continue
         if is_sdh:
             l = _SDH_SOUND_EFFECT.sub("", l)
@@ -111,6 +111,10 @@ def clean_embedded_dialogue_text(text: str, is_sdh: bool = False) -> str:
             l = _SDH_SPEAKER_LABEL.sub(r"\1", l.strip())
         elif "[" in l or "(" in l:
             l = _SDH_SOUND_EFFECT.sub("", l)
+            l = _SDH_INLINE_SOUND.sub(
+                lambda m: "" if any(k in m.group(0).lower() for k in ("stammer", "sigh", "gasp", "chuckle", "snicker", "whisper", "music", "groan", "applause", "laughter")) else m.group(0),
+                l,
+            )
             l = _SDH_SPEAKER_LABEL.sub(r"\1", l.strip())
         l = _INLINE_MUSIC_NOTES.sub("", l).strip()
         if l and not _PURE_MUSIC_LINE.match(l):
@@ -552,6 +556,7 @@ def merge_frame_detections(
     drop_tags: bool = False,
     repeat_window: float = 0.0,
     file_name: str = "",
+    sensitivity: int = 2,
 ) -> List[Dict[str, Any]]:
     """
     Collapse consecutive frames showing the same text into one ON_SCREEN segment:
@@ -571,7 +576,10 @@ def merge_frame_detections(
             continue
         if not re.search(r"[^\W\d_]", det.text):
             continue  # bare numbers / clocks ("151", "00:35") are not readable text
-        if drop_tags and (_is_tag(det.text) or _is_unwanted_onscreen(det.text, file_name=file_name)):
+        if drop_tags and (
+            _is_tag(det.text, sensitivity=sensitivity)
+            or _is_unwanted_onscreen(det.text, file_name=file_name, sensitivity=sensitivity)
+        ):
             logger.info(f"On-screen text at {det.time:.1f}s dropped as non-narrative/label: {det.text.strip()!r}")
             continue
         last_seen = max(det.time, det.until or det.time)
@@ -607,16 +615,20 @@ def merge_frame_detections(
     return segments
 
 
-def _is_tag(text: str) -> bool:
+def _is_tag(text: str, sensitivity: int = 2) -> bool:
     """One short word with no digits: a HUD label or callsign rather than a title card.
     An ALL-CAPS single word ("VULTURE") is a callsign even when a bit longer; a capitalized
     one ("Siberia") may be a location title and is kept."""
+    if sensitivity >= 3:
+        return False
     words = text.split()
     if len(words) != 1 or any(c.isdigit() for c in words[0]):
         return False
     bare = _norm(words[0])
     if len(bare) <= _TAG_MAX_CHARS:
         return True
+    if sensitivity == 2:
+        return len(bare) <= 5
     return words[0].isupper() and len(bare) <= _TAG_MAX_UPPER
 
 
@@ -638,9 +650,7 @@ _DOCUMENT_BOILERPLATE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-_ALLOWED_KINDS = {
-    "", "time_jump", "location", "date_time", "title_card", "chyron", "message", "text_message", "screen_message", "hud", "sign", "other",
-}
+_ALWAYS_REJECTED_KINDS = {"credits", "show_title", "background", "incidental"}
 _REJECTED_KINDS = {"document", "report", "form", "credits", "show_title", "background", "incidental"}
 
 
@@ -654,23 +664,38 @@ def _series_stem_norm(file_name: str) -> str:
     return _norm(head)
 
 
-def _is_unwanted_onscreen(text: str, kind: str = "", file_name: str = "") -> bool:
+def _is_unwanted_onscreen(text: str, kind: str = "", file_name: str = "", sensitivity: int = 2) -> bool:
     """
     Return True if `text` looks like random document/form boilerplate, an overly long
     document dump, or the show's own main title card rather than narrative titles,
     speaker identification chyrons, or viewer-intended messages (like phone texts).
     """
     k = (kind or "").strip().lower()
-    if k in _REJECTED_KINDS:
+    if k in _ALWAYS_REJECTED_KINDS:
         return True
+    if sensitivity <= 1:
+        if k in {"document", "report", "form", "sign", "hud"}:
+            return True
+    elif sensitivity == 2:
+        if k in {"report", "form"}:
+            return True
+
     clean = text.strip().strip("[]").strip()
     if not clean:
         return True
-    if _DOCUMENT_BOILERPLATE.search(clean):
+    if sensitivity < 3 and _DOCUMENT_BOILERPLATE.search(clean):
         return True
     words = clean.split()
-    if len(words) > 14 or len(clean) > 95:
-        return True
+    if sensitivity <= 1:
+        if len(words) > 14 or len(clean) > 95:
+            return True
+    elif sensitivity == 2:
+        if len(words) > 26 or len(clean) > 180:
+            return True
+    else:  # Level 3 (Broad)
+        if len(words) > 45 or len(clean) > 300:
+            return True
+
     series_norm = _series_stem_norm(file_name)
     if series_norm and len(series_norm) >= 6 and _norm(clean) == series_norm:
         return True
@@ -699,6 +724,59 @@ If a chyron or title is animating in/out across consecutive frames in the batch,
 If a frame only contains a paper document, report header, background sign, or the show's main title logo, omit it completely.
 Copy qualifying text concisely as shown (for phone messages, copy only the message text itself, not the phone UI/clock). Use the timestamp given before each frame. Return an empty list if none qualify."""
 
+VISION_SYSTEM_INSTRUCTION_BALANCED = """You read video frames from a movie or TV episode for a subtitle editor.
+Report ONLY on-screen text that the viewer is genuinely meant to read to follow the story or programme:
+1. **Speaker / interviewee / expert / character identification chyrons & lower-thirds (`chyron`):**
+   - Lower-third or overlaid captions introducing a person on screen with their name, title, role, or affiliation (e.g. "DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT", "MARTY LAGINA", "JOHN SMITH — FORMER FBI AGENT"). Combine the name and role/title lines with a newline (`\\n`).
+2. **Narrative overlaid titles & captions (`time_jump`, `location`, `date_time`, `title_card`):**
+   - Time jumps ("One week later...", "36 Hours Earlier", "Summer 2018")
+   - Location / date / time stamps ("Damascus, Syria", "March 3, 2014 - 0400 hours", "1st July", "Oak Island, Nova Scotia", "Skinwalker Ranch", "Skinwalker Ranch — Command Center")
+   - Narrative chapter titles, documentary fact/info overlays, map/elevation labels ("1000 FEET", "THE MESA DRILL SITE"), or news ticker headlines deliberately overlaid for the audience
+3. **Viewer-facing messages (`text_message`, `screen_message`):**
+   - Text messages / SMS / chat messages on a phone screen when the camera frames the phone so the audience can read the message
+   - A deliberate close-up insert shot of a short computer/screen alert, note, or headline that the viewer must read to understand the scene
+4. **Plot-critical signs & key close-up headlines (`sign`, `document`):**
+   - Significant signs that the camera deliberately frames in establishing shots or close-ups (e.g. facility/building names, warning plates, entrance plaques) that are essential for following the scene
+   - Short close-up headlines or notes that the viewer is explicitly meant to read
+
+Strictly IGNORE and DO NOT report:
+- **Incidental background or environmental text:** fleeting background street signs, posters, license plates, computer UI chrome, phone status bars/clocks/contact headers, equipment/gauge labels, bare numbers, channel watermarks, and bottom dialogue subtitles.
+- **Boilerplate paperwork or forms:** dense police/arrest reports, medical charts, full form paragraphs, case files, ID badges, or dense book pages lying on a desk.
+- **Opening/closing credits and the show's own stylized main title logo** (e.g. actor/crew credits or full series title card; however, DO report narrative location titles like "SKINWALKER RANCH").
+- **One-word HUD/radio tags or callsigns** ("EAGLE", "LIVE", "REC").
+
+If a chyron or title is animating in/out across consecutive frames in the batch, report its complete reading and skip half-typed mid-transition fragments.
+Copy qualifying text concisely as shown (for phone messages, copy only the message text itself, not the phone UI/clock). Use the timestamp given before each frame. Return an empty list if none qualify."""
+
+VISION_SYSTEM_INSTRUCTION_BROAD = """You read video frames from a movie or TV episode for a subtitle editor.
+Report readable narrative on-screen text that conveys story context or information:
+1. **Speaker / interviewee / character chyrons & lower-thirds (`chyron`):**
+   - Names, roles, affiliations overlaid on screen.
+2. **Narrative titles & timestamps (`time_jump`, `location`, `date_time`, `title_card`):**
+   - Time jumps, location/date/time stamps, chapter titles, documentary facts, map labels.
+3. **Screens, phones & viewer messages (`text_message`, `screen_message`):**
+   - Phone text messages, emails, computer monitors, screen alerts.
+4. **Signs, plaques & tactical HUD (`sign`, `hud`):**
+   - Building/facility signs, warning plates, street plaques, and tactical HUD headers/displays.
+5. **Documents & close-up files (`document`):**
+   - Close-up headlines, letters, files, or documents framed by the camera.
+
+Strictly IGNORE and DO NOT report:
+- **Channel watermarks / station logos**
+- **Hardcoded bottom dialogue subtitles** (burned-in translations of spoken dialogue)
+- **Opening/closing actor & crew credits**
+- **The show's own main stylized title logo card**
+
+Copy qualifying text concisely as shown. Use the timestamp given before each frame. Return an empty list if none qualify."""
+
+
+def get_vision_system_instruction(sensitivity: int = 2) -> str:
+    if sensitivity <= 1:
+        return VISION_SYSTEM_INSTRUCTION
+    if sensitivity >= 3:
+        return VISION_SYSTEM_INSTRUCTION_BROAD
+    return VISION_SYSTEM_INSTRUCTION_BALANCED
+
 
 SUBTITLE_INSTRUCTION = """Each image is the bottom part of a frame from a movie or TV episode, cropped where subtitles appear.
 If the image shows a burned-in subtitle — dialogue text overlaid by the film makers, typically translating
@@ -719,6 +797,7 @@ async def _gemini_detect(
     stage: str = "onscreen",
     flex: bool = False,
     flex_state: Any = None,
+    sensitivity: int = 2,
 ) -> List[FrameDetection]:
     from google.genai import types
     from app.core.model_catalog import default_temperature, media_resolution, thinking_config
@@ -729,7 +808,7 @@ async def _gemini_detect(
         text: str = Field(description="The speaker chyron, narrative title, or viewer-intended message text exactly as shown")
         kind: str = Field(
             default="other",
-            description="chyron | time_jump | location | date_time | title_card | text_message | screen_message",
+            description="chyron | time_jump | location | date_time | title_card | text_message | screen_message | sign | hud | document | other",
         )
 
     class OnScreenBatch(BaseModel):
@@ -762,7 +841,7 @@ async def _gemini_detect(
     parsed = OnScreenBatch.model_validate_json(response.text)
     out = []
     for d in parsed.detections:
-        if stage == "onscreen" and _is_unwanted_onscreen(d.text, d.kind):
+        if stage == "onscreen" and _is_unwanted_onscreen(d.text, d.kind, sensitivity=sensitivity):
             logger.info(f"On-screen detection at {d.timestamp:.1f}s ignored ({d.kind}): {d.text!r}")
             continue
         # Snap to the nearest real frame in this batch (models occasionally round timestamps)
@@ -904,7 +983,14 @@ class OnScreenTextStage(PipelineStage):
         return False
 
     async def _detect_batches(
-        self, ctx: PipelineContext, client: Any, frames: List[Frame], instruction: str, stage: str, on_batch=None
+        self,
+        ctx: PipelineContext,
+        client: Any,
+        frames: List[Frame],
+        instruction: str,
+        stage: str,
+        on_batch=None,
+        sensitivity: int = 2,
     ):
         """Send frames to Gemini Vision in concurrent batches. Returns (detections, failed_batches)."""
         from app.core.user_settings import load_settings
@@ -934,6 +1020,7 @@ class OnScreenTextStage(PipelineStage):
                             stage=stage,
                             flex=app_settings.vision.flex,
                             flex_state=ctx.flex_state,
+                            sensitivity=sensitivity,
                         ))
                         break
                     except Exception as e:
@@ -979,7 +1066,16 @@ class OnScreenTextStage(PipelineStage):
             speech = [(float(s["start_time"]), float(s["end_time"])) for s in ctx.embedded_dialogue_segments]
         else:
             speech = [(s.start_time, s.end_time) for s in ctx.raw_segments]
-        selected = select_frames(frames, speech, settings.onscreen_max_frames)
+
+        sensitivity = getattr(ctx, "onscreen_sensitivity", 2)
+        if sensitivity == 1:
+            frame_budget = int(settings.onscreen_max_frames * 0.75)
+        elif sensitivity == 3:
+            frame_budget = int(settings.onscreen_max_frames * 1.35)
+        else:
+            frame_budget = settings.onscreen_max_frames
+
+        selected = select_frames(frames, speech, frame_budget)
 
         from app.core.user_settings import load_settings
 
@@ -1031,8 +1127,9 @@ class OnScreenTextStage(PipelineStage):
             done += 1
             await progress(15.0 + 50.0 * done / max(1, total), f"Scanned {done}/{total} frame batches")
 
+        instruction = get_vision_system_instruction(sensitivity)
         detections, failed = await self._detect_batches(
-            ctx, client, selected, VISION_SYSTEM_INSTRUCTION, "onscreen", on_batch
+            ctx, client, selected, instruction, "onscreen", on_batch, sensitivity=sensitivity
         )
         found = merge_frame_detections(
             detections,
@@ -1040,6 +1137,7 @@ class OnScreenTextStage(PipelineStage):
             drop_tags=True,
             repeat_window=_ONSCREEN_REPEAT_WINDOW,
             file_name=ctx.file_name or "",
+            sensitivity=sensitivity,
         )
         dialogue_list = ctx.embedded_dialogue_segments or [
             {"start_time": s.start_time, "end_time": s.end_time, "original_text": s.text}

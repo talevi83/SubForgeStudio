@@ -107,6 +107,7 @@ class FasterWhisperTranscriber(BaseTranscriber):
         batch_size: Optional[int] = None,
         comms_boost: bool = False,
         context_notes: Optional[str] = None,
+        high_speech_sensitivity: bool = False,
     ):
         self.model_name = model_size_or_path or settings.whisper_default_model
 
@@ -121,9 +122,10 @@ class FasterWhisperTranscriber(BaseTranscriber):
         self.compute_type = target_compute
 
         self.comms_boost = comms_boost
+        self.high_speech_sensitivity = high_speech_sensitivity
         self.context_notes = context_notes
-        # Comms mode always runs VAD — with the permissive parameters below
-        self.vad_filter = vad_filter or comms_boost
+        # Comms mode & high speech sensitivity always run VAD with their respective parameters
+        self.vad_filter = vad_filter or comms_boost or high_speech_sensitivity
         self.batch_size = settings.whisper_batch_size if batch_size is None else batch_size
         self.detected_language: Optional[str] = None
         self._model: Optional[WhisperModel] = None
@@ -166,6 +168,17 @@ class FasterWhisperTranscriber(BaseTranscriber):
             # repeated for minutes: each window is decoded without the previous text.
             condition_on_previous_text=False,
         )
+        if self.high_speech_sensitivity:
+            common.update(
+                vad_parameters=dict(
+                    threshold=0.35,
+                    min_speech_duration_ms=150,
+                    min_silence_duration_ms=400,
+                    speech_pad_ms=400,
+                ),
+                no_speech_threshold=0.75,
+                log_prob_threshold=-1.2,
+            )
         if self.comms_boost:
             common.update(
                 vad_parameters=dict(COMMS_VAD_PARAMETERS),
@@ -180,8 +193,9 @@ class FasterWhisperTranscriber(BaseTranscriber):
         if batched:
             logger.info(f"Transcribing with batched inference (batch_size={self.batch_size})")
             pipeline = BatchedInferencePipeline(model=model)
+            chunk_length = 25 if self.high_speech_sensitivity else 15
             return pipeline.transcribe(
-                audio_path, batch_size=self.batch_size, vad_filter=True, chunk_length=15, **common
+                audio_path, batch_size=self.batch_size, vad_filter=True, chunk_length=chunk_length, **common
             )
         return model.transcribe(audio_path, vad_filter=self.vad_filter, **common)
 
@@ -383,7 +397,8 @@ class FasterWhisperTranscriber(BaseTranscriber):
         audio = load_wav(audio_path)
         duration = len(audio) / SAMPLE_RATE
         gaps = gr.find_gaps(gr.covered_intervals(spoken), duration, exclude)
-        gaps = [g for g in gr.split_long(gaps, max_len=14.0) if gr.level_db(audio, *g) > gr.MIN_LEVEL_DB]
+        min_level_db = -54.0 if getattr(self, "high_speech_sensitivity", False) else gr.MIN_LEVEL_DB
+        gaps = [g for g in gr.split_long(gaps, max_len=14.0) if gr.level_db(audio, *g) > min_level_db]
         if not gaps:
             logger.info("Gap recovery: no uncovered audio worth re-listening to")
             return []

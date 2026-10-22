@@ -21,11 +21,15 @@ from app.pipeline.stages.ocr_stage import (
     Frame,
     FrameDetection,
     OnScreenTextStage,
+    clean_embedded_dialogue_text,
     format_onscreen_text,
+    get_vision_system_instruction,
     merge_frame_detections,
     parse_srt,
     pick_forced_track,
     select_frames,
+    _is_tag,
+    _is_unwanted_onscreen,
 )
 from app.pipeline.stages.refine_stage import classify_comms, is_comms_text, merge_timeline
 from app.pipeline.stages.transcribe_stage import TranscribeStage
@@ -142,6 +146,88 @@ def test_filters_random_documents_and_show_title_but_keeps_messages_and_titles()
         "[Meet me at the warehouse at midnight.]",
         "[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]",
     ]
+
+
+def test_onscreen_sensitivity_prompts_and_filters():
+    # Prompt helper
+    s1_prompt = get_vision_system_instruction(1)
+    s2_prompt = get_vision_system_instruction(2)
+    s3_prompt = get_vision_system_instruction(3)
+    assert "Strictly IGNORE" in s1_prompt
+    assert "Plot-critical signs" in s2_prompt
+    assert "Signs, plaques & tactical HUD" in s3_prompt
+
+    # _is_tag checks
+    # Level 1 drops single uppercase words up to 12 chars
+    assert _is_tag("PENTAGON", sensitivity=1) is True
+    assert _is_tag("LIVE", sensitivity=1) is True
+    # Level 2 only drops tags <= 5 chars, keeps meaningful 1-word signs like PENTAGON
+    assert _is_tag("LIVE", sensitivity=2) is True
+    assert _is_tag("REC", sensitivity=2) is True
+    assert _is_tag("PENTAGON", sensitivity=2) is False
+    assert _is_tag("RESTRICTED", sensitivity=2) is False
+    # Level 3 keeps all single word signs
+    assert _is_tag("PENTAGON", sensitivity=3) is False
+    assert _is_tag("CLASSIFIED", sensitivity=3) is False
+    assert _is_tag("LIVE", sensitivity=3) is False
+
+    # _is_unwanted_onscreen checks
+    police_report = "CALWELL POLICE DEPARTMENT ARREST REPORT"
+    sms_20_words = "Please make sure you arrive at the safe house before dusk because the patrol cars will be circling the area."
+    assert len(sms_20_words.split()) == 20
+
+    # Level 1 (Strict): rejects police report, 20-word SMS (len > 14 words), and document kinds
+    assert _is_unwanted_onscreen(police_report, sensitivity=1) is True
+    assert _is_unwanted_onscreen(sms_20_words, sensitivity=1) is True
+    assert _is_unwanted_onscreen("Safe house note", kind="document", sensitivity=1) is True
+
+    # Level 2 (Balanced): rejects police report (boilerplate), keeps 20-word SMS (up to 26 words), keeps signs/docs
+    assert _is_unwanted_onscreen(police_report, sensitivity=2) is True
+    assert _is_unwanted_onscreen(sms_20_words, sensitivity=2) is False
+    assert _is_unwanted_onscreen("Safe house entrance", kind="sign", sensitivity=2) is False
+
+    # Level 3 (Broad): keeps police report (no boilerplate filter), keeps 20-word SMS
+    assert _is_unwanted_onscreen(police_report, sensitivity=3) is False
+    assert _is_unwanted_onscreen(sms_20_words, sensitivity=3) is False
+
+    # Series stem normalization filters main title card across all levels
+    show_title = "THE BLACK DAGGER BROTHERHOOD"
+    file_name = "The.Black.Dagger.Brotherhood.S01E01.1080p.mkv"
+    assert _is_unwanted_onscreen(show_title, file_name=file_name, sensitivity=1) is True
+    assert _is_unwanted_onscreen(show_title, file_name=file_name, sensitivity=2) is True
+    assert _is_unwanted_onscreen(show_title, file_name=file_name, sensitivity=3) is True
+
+
+def test_merge_frame_detections_with_sensitivity():
+    dets = [
+        FrameDetection(10.0, "PENTAGON"),
+        FrameDetection(20.0, "CALWELL POLICE DEPARTMENT ARREST REPORT"),
+        FrameDetection(30.0, "Please make sure you arrive at the safe house before dusk because the patrol cars will be circling the area."),
+        FrameDetection(40.0, "Summer 2018"),
+    ]
+    # Sensitivity 1: drops PENTAGON, police report, and 20-word message -> keeps only Summer 2018
+    s1 = merge_frame_detections(dets, drop_tags=True, sensitivity=1)
+    assert [s["original_text"] for s in s1] == ["[Summer 2018]"]
+
+    # Sensitivity 2: keeps PENTAGON, 20-word message, and Summer 2018 -> drops police report
+    s2 = merge_frame_detections(dets, drop_tags=True, sensitivity=2)
+    assert [s["original_text"] for s in s2] == [
+        "[PENTAGON]",
+        "[Please make sure you arrive at the safe house before dusk because the patrol cars will be circling the area.]",
+        "[Summer 2018]",
+    ]
+
+    # Sensitivity 3: keeps all of them including police report
+    s3 = merge_frame_detections(dets, drop_tags=True, sensitivity=3)
+    assert len(s3) == 4
+    assert s3[1]["original_text"] == "[CALWELL POLICE DEPARTMENT ARREST REPORT]"
+
+
+def test_clean_embedded_dialogue_inline_whispering():
+    assert clean_embedded_dialogue_text("(whispering) Run!") == "Run!"
+    assert clean_embedded_dialogue_text("[whispering] Run!", is_sdh=True) == "Run!"
+    assert clean_embedded_dialogue_text("(whispers) Take cover.") == "Take cover."
+    assert clean_embedded_dialogue_text("(whispering)") == ""  # pure sound cue dropped
 
 
 def test_select_frames_prefers_gaps_and_cuts_and_skips_static_repeats():

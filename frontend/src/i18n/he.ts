@@ -143,6 +143,19 @@ export const he: Messages = {
     useEmbeddedDescription:
       'אם קיים ערוץ כתוביות מלא בקובץ הווידאו, חילוץ ישיר שלו מהיר ומדויק יותר מתמלול שמיעתי. סריקת כותרות מהמסך תמשיך כרגיל.',
     onscreenNeedsKey: 'סריקת פריימים דורשת מפתח Gemini.',
+    onscreenSensitivityLabel: 'רגישות קריאת טקסט מהמסך',
+    onscreenSensitivityStrict: 'קפדני (כותרות בלבד)',
+    onscreenSensitivityBalanced: 'מאוזן (מומלץ)',
+    onscreenSensitivityBroad: 'מרחיב (כולל שלטים ומסמכים)',
+    onscreenSensitivityDescStrict:
+      'תופס רק שמות מרואיינים, כותרות זמן/מיקום והודעות טלפון. מתעלם משלטים ומסמכים.',
+    onscreenSensitivityDescBalanced:
+      'תופס כותרות, הודעות ושלטים מרכזיים שהמצלמה מתמקדת בהם וחשובים לעלילה.',
+    onscreenSensitivityDescBroad:
+      'תופס כמעט כל טקסט קריא על המסך, כולל שלטים, תצוגות HUD ומסמכים בקלוז-אפ.',
+    highSpeechSensitivityTitle: 'רגישות דיבור גבוהה (תפיסת לחישות)',
+    highSpeechSensitivityDesc:
+      'מרכך את סינון השקט כדי לתפוס לחישות, דיבור חלש או משפטים שנבלעים במוזיקת רקע חזקה.',
     estimateTitle: 'עלות Gemini משוערת לקובץ הזה',
     estimateNone: 'אין קריאות ל־Gemini עם האפשרויות האלה',
     estimateBreakdown: 'פירוט',

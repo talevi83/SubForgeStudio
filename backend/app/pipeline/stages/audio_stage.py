@@ -167,7 +167,10 @@ class AudioExtractionStage(PipelineStage):
                     dialogue_segs, onscreen_segs = await extract_dialogue_track(
                         ctx.video_path, track, duration=ctx.duration
                     )
-                    min_cues = max(5, int((ctx.duration or 0.0) / 45.0))
+                    if (ctx.duration or 0.0) >= 60.0:
+                        min_cues = max(5, int((ctx.duration or 0.0) / 15.0))
+                    else:
+                        min_cues = max(2, int((ctx.duration or 0.0) / 15.0))
                     if len(dialogue_segs) >= min_cues:
                         ctx.embedded_dialogue_segments = dialogue_segs
                         ctx.embedded_subtitle_stream = track
