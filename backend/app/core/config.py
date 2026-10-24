@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     onscreen_frame_interval: float = 2.0
     onscreen_max_frames: int = 660
     onscreen_batch_size: int = 12
+    # Allow on-screen OCR text to overlap dialogue subtitles (displayed at top and bottom simultaneously)
+    allow_onscreen_overlap: bool = True
+    # Placement of on-screen OCR text: "top_center", "middle_right", "middle_left", "top_right", "top_left"
+    onscreen_position: str = "top_center"
+    # Convert non-metric units (miles, feet, pounds, Fahrenheit, etc.) to the metric system
+    convert_to_metric: bool = False
     # Run a one-off glossary pass (characters, genders, terms) before translating
     gemini_glossary_pass: bool = True
     # Local PC pre-processing (frame pre-filtering, Whisper VRAM unload, local gender pre-tagging)

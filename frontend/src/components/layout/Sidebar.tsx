@@ -202,6 +202,18 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <button
+          onClick={() => setView(view === 'settings' ? 'studio' : 'settings')}
+          className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+            view === 'settings'
+              ? 'bg-indigo-600/15 border-indigo-500/50 text-indigo-300'
+              : 'bg-raised border-line text-zinc-300 hover:border-zinc-600'
+          }`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+          {t('sidebar.settings')}
+        </button>
+
+        <button
           onClick={() => setView(view === 'help' ? 'studio' : 'help')}
           data-testid="sidebar-help-btn"
           className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
@@ -212,18 +224,6 @@ export const Sidebar: React.FC = () => {
         >
           <HelpCircle className="w-3.5 h-3.5" />
           {t('sidebar.help')}
-        </button>
-
-        <button
-          onClick={() => setView(view === 'settings' ? 'studio' : 'settings')}
-          className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-            view === 'settings'
-              ? 'bg-indigo-600/15 border-indigo-500/50 text-indigo-300'
-              : 'bg-raised border-line text-zinc-300 hover:border-zinc-600'
-          }`}
-        >
-          <Settings className="w-3.5 h-3.5" />
-          {t('sidebar.settings')}
         </button>
       </div>
     </aside>

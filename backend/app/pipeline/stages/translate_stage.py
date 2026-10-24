@@ -59,6 +59,7 @@ class TranslateStage(PipelineStage):
             flex=app_settings.translation.flex if same_model else False,
             glossary_flex=app_settings.glossary.flex,
             flex_state=ctx.flex_state,
+            convert_to_metric=getattr(ctx, "convert_to_metric", False) or app_settings.convert_to_metric,
         )
 
     async def execute(

@@ -3,7 +3,7 @@ import type { SegmentPatch, SubtitleSegment } from '../../types';
 import { CpsBadge } from './CpsBadge';
 import { formatTimecode } from '../../utils/time';
 import { useT } from '../../i18n';
-import { AlertTriangle, GripVertical, Minus, Plus } from 'lucide-react';
+import { AlertTriangle, GripVertical, Minus, Plus, Trash2 } from 'lucide-react';
 
 const SAVE_DELAY_MS = 600;
 
@@ -22,6 +22,8 @@ interface SubtitleRowProps {
   onCheck?: (segmentId: number, shift: boolean) => void;
   /** "+" under the row number: add a line right after this one; omitted while the job runs */
   onInsertAfter?: (seg: SubtitleSegment) => void;
+  /** Delete this subtitle line; omitted while the job runs */
+  onDelete?: (seg: SubtitleSegment) => void;
   /** Drag-to-move support; omitted while the table is filtered or still being generated. */
   dnd?: {
     isDragging: boolean;
@@ -31,6 +33,8 @@ interface SubtitleRowProps {
     onDrop: (segmentId: number) => void;
     onDragEnd: () => void;
   };
+  /** Filter the table by this tag when clicking the badge */
+  onFilterTag?: (tag: string) => void;
 }
 
 type TextField = 'original_text' | 'translated_text';
@@ -116,7 +120,9 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
   checked,
   onCheck,
   onInsertAfter,
+  onDelete,
   dnd,
+  onFilterTag,
 }) => {
   const t = useT();
   const editable = !!seg.id;
@@ -215,41 +221,84 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
           />
         )}
         <div>{seg.index}</div>
-        {onInsertAfter && seg.id && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInsertAfter(seg);
-            }}
-            title={t('table.insertAfter', { index: seg.index })}
-            aria-label={t('table.insertAfter', { index: seg.index })}
-            data-testid={`insert-after-${seg.index}`}
-            className="mx-auto mt-0.5 flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-indigo-600 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
-          >
-            <Plus className="w-3 h-3" />
-          </button>
-        )}
+        <div className="flex items-center justify-center gap-0.5 mt-0.5">
+          {onInsertAfter && seg.id && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInsertAfter(seg);
+              }}
+              title={t('table.insertAfter', { index: seg.index })}
+              aria-label={t('table.insertAfter', { index: seg.index })}
+              data-testid={`insert-after-${seg.index}`}
+              className="flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-indigo-600 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer transition-opacity"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          )}
+          {onDelete && seg.id && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(t('table.confirmDeleteRow', { index: seg.index }))) {
+                  onDelete(seg);
+                }
+              }}
+              title={t('table.deleteRow', { index: seg.index })}
+              aria-label={t('table.deleteRow', { index: seg.index })}
+              data-testid={`delete-row-${seg.index}`}
+              className="flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-rose-300 hover:bg-rose-500/20 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer transition-opacity"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
         {seg.segment_type === 'ON_SCREEN' && (
           <span
-            className="mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-            title={t('table.onscreenTitle')}
+            className={`mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 ${
+              onFilterTag ? 'cursor-pointer hover:bg-cyan-500/25 hover:border-cyan-400' : ''
+            }`}
+            title={onFilterTag ? t('table.filterByTag', { tag: t('table.onscreenBadge') }) : t('table.onscreenTitle')}
+            onClick={(e) => {
+              if (onFilterTag) {
+                e.stopPropagation();
+                onFilterTag('ON_SCREEN');
+              }
+            }}
           >
             📺 {t('table.onscreenBadge')}
           </span>
         )}
         {seg.segment_type === 'FOREIGN' && (
           <span
-            className="mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-violet-500/15 text-violet-300 border border-violet-500/30"
-            title={t('table.foreignTitle')}
+            className={`mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-violet-500/15 text-violet-300 border border-violet-500/30 ${
+              onFilterTag ? 'cursor-pointer hover:bg-violet-500/25 hover:border-violet-400' : ''
+            }`}
+            title={onFilterTag ? t('table.filterByTag', { tag: t('table.foreignBadge') }) : t('table.foreignTitle')}
+            onClick={(e) => {
+              if (onFilterTag) {
+                e.stopPropagation();
+                onFilterTag('FOREIGN');
+              }
+            }}
           >
             🌐 {t('table.foreignBadge')}
           </span>
         )}
         {seg.segment_type === 'COMMS' && (
           <span
-            className="mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-            title={t('table.commsTitle')}
+            className={`mt-1 inline-block whitespace-nowrap px-1 py-0.5 rounded text-[9px] font-sans font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 ${
+              onFilterTag ? 'cursor-pointer hover:bg-emerald-500/25 hover:border-emerald-400' : ''
+            }`}
+            title={onFilterTag ? t('table.filterByTag', { tag: t('table.commsBadge') }) : t('table.commsTitle')}
+            onClick={(e) => {
+              if (onFilterTag) {
+                e.stopPropagation();
+                onFilterTag('COMMS');
+              }
+            }}
           >
             📻 {t('table.commsBadge')}
           </span>

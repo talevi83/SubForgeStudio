@@ -60,6 +60,9 @@ class JobConfig(BaseModel):
     use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
+    allow_onscreen_overlap: bool = True
+    onscreen_position: Optional[str] = "top_center"
+    convert_to_metric: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
     # None = use the translation model chosen on the Settings screen
@@ -237,6 +240,9 @@ class JobResponse(BaseModel):
     use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
+    allow_onscreen_overlap: bool = True
+    onscreen_position: Optional[str] = "top_center"
+    convert_to_metric: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"

@@ -109,6 +109,7 @@ def build_subtitle_system_prompt(
     context_notes: str = "",
     max_chars_per_line: int = 42,
     glossary: Optional[Dict[str, Any]] = None,
+    convert_to_metric: bool = False,
 ) -> str:
     """Construct the system prompt engineered for cinema/broadcast subtitle translation."""
     extra_context = (
@@ -127,6 +128,15 @@ def build_subtitle_system_prompt(
    - **Proper Nouns & Technical Terms:** Transliterate character names consistently across batches (use the glossary spellings).
    - **On-screen titles & speaker chyrons (`segment_type` = "ON_SCREEN", or any line wrapped in `[...]`):** translate concisely as an official Hebrew broadcast screen title and keep the square brackets, e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`, `[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]` → `[ד״ר יאן פרנקה — מומחה בינלאומי ל-GPR]`. Write dates/times the way Israeli broadcasters do.
    - **Radio & military comms (`segment_type` = "COMMS", or military/radio terminology in any line):** use authentic IDF/tactical Hebrew radio phrasing, short and clipped, e.g. "Copy that" → "קיבלתי" / "רות", "Over" → "עבור", "Over and out" → "סוף", "Roger" → "רות", "Say again" → "חזור", "Sitrep" → "דו"ח מצב", "Do you copy?" → "שומע?". Keep callsigns as transliterated names.
+"""
+
+    metric_rules = ""
+    if convert_to_metric:
+        metric_rules = """
+7. **Metric System Conversion (Imperial to Metric):**
+   - Automatically convert non-metric measurements (miles, feet, inches, yards, pounds/lbs, ounces, Fahrenheit, gallons, acres, etc.) into their natural, idiomatic Metric system equivalents (km, km/h, meters, cm, kg, grams, Celsius, liters, dunams).
+   - Round converted numbers naturally and comfortably for subtitle readability, matching common human speech (e.g., "50 feet" → "15 מטר", "6 feet tall" / "6-foot" → "בגובה 1.80 מ׳", "100 degrees" → "38 מעלות", "90 miles an hour" → "145 קמ״ש", "200 pounds" → "90 ק״ג", "half a mile" → "כ-800 מטר", "10 miles" → "16 ק״מ", "5 acres" → "20 דונם").
+   - Do NOT convert figurative idioms or symbolic expressions where the unit is metaphorical rather than a literal measurement (e.g. "give him an inch and he'll take a mile", "miles away" meaning distracted, "walk a mile in my shoes", "million-mile stare").
 """
 
     return f"""You are an elite, broadcast-grade audiovisual subtitle translator specializing in translating movies and TV series from {source_lang} to {target_lang}.
@@ -162,7 +172,8 @@ Translate the `target_batch` subtitle segments into natural, idiomatic, spoken {
    - "ON_SCREEN": text shown on screen (speaker/expert identification chyron, time jump, location, date, phone text message). Translate it as a short screen title (transliterating person names and translating their title/role) and keep any surrounding square brackets `[...]`. A bracketed first line inside a DIALOGUE segment is also an on-screen title: translate it the same way and keep it as the first line.
    - "FOREIGN": a line spoken in a different language than the rest of the show (e.g. Russian in an English series). Its text is either the show's own subtitle for that line or a transcription in the original language — either way, translate it into the target language as ordinary dialogue (no brackets).
 {hebrew_rules}
-7. **Output hygiene:** Plain text only. Keep punctuation at the logical end of sentences and do NOT insert Unicode direction marks or manually reverse punctuation — a downstream processor handles right-to-left display. Never put the ASCII double-quote character (") inside a translation — it ends the JSON string and cuts the subtitle off. For Hebrew abbreviations use gershayim ״ and geresh ׳ (ד״ר, אב״כ, נ״צ, כנ״ל, צה״ל, ג׳יימס); for quotations use “ ”.
+{metric_rules}
+8. **Output hygiene:** Plain text only. Keep punctuation at the logical end of sentences and do NOT insert Unicode direction marks or manually reverse punctuation — a downstream processor handles right-to-left display. Never put the ASCII double-quote character (") inside a translation — it ends the JSON string and cuts the subtitle off. For Hebrew abbreviations use gershayim ״ and geresh ׳ (ד״ר, אב״כ, נ״צ, כנ״ל, צה״ל, ג׳יימס); for quotations use “ ”.
 """
 
 
@@ -216,6 +227,7 @@ class GeminiTranslator(BaseTranslator):
         flex: bool = False,
         glossary_flex: bool = False,
         flex_state: Optional[gemini_calls.FlexState] = None,
+        convert_to_metric: bool = False,
     ):
         resolved_key = (api_key or "").strip() or settings.gemini_api_key
         if not resolved_key or resolved_key == "your_gemini_api_key_here":
@@ -238,6 +250,7 @@ class GeminiTranslator(BaseTranslator):
         self.flex = flex
         self.glossary_flex = glossary_flex
         self.flex_state = flex_state if flex_state is not None else gemini_calls.FlexState()
+        self.convert_to_metric = convert_to_metric
         self.last_glossary_error: Optional[str] = None
 
     async def _generate(
@@ -364,6 +377,7 @@ class GeminiTranslator(BaseTranslator):
                 context_notes=context_notes,
                 max_chars_per_line=self.max_chars_per_line,
                 glossary=batch_glossary,
+                convert_to_metric=self.convert_to_metric,
             )
 
             try:

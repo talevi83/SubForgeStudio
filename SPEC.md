@@ -143,10 +143,13 @@ The frontend store reconnects automatically and re-fetches the job on reconnect,
 - Limits are configurable: `MAX_CHARS_PER_LINE` 42, `TARGET_CPS` 17, `MAX_CPS_WARNING` 20, duration 1–7 s, minimum gap ≈ 2 frames.
 - **RTL (Hebrew/Arabic):** text is stored clean; directional marks (`U+200F`) are added only at export so `? ! .` and dialogue dashes land on the right side in VLC/Plex/HTML5 players; SRT is written with a UTF-8 BOM.
 - Segment types: `DIALOGUE`, `COMMS` (radio traffic), `ON_SCREEN` (titles/signs, bracketed), `FOREIGN` (other-language speech).
+- **On-Screen / Dialogue Overlap & Adequate Reading Time:** On-screen chyrons/titles can display concurrently with bottom dialogue subtitles without clipping subsequent speech lines (`allow_overlap=True`). On-screen cues compute a minimum reading duration based on character count (`chars / 15 cps`). Manual segment insertion in the studio distinguishes dialogue from on-screen lines to prevent collision false-positives.
+- **On-Screen Subtitle Positioning (`onscreen_position`):** Configurable in Settings and per-job Ingest (`top_center`, `middle_right`, `middle_left`, `top_right`, `top_left`). Serialized using standard SubStation Alpha tags `{\anX}` in SRT (supported by VLC, MPC-HC, MPV, PotPlayer) and positioning cue settings (`line:8%`, `line:50% position:90%`, etc.) in WebVTT, as well as live HTML5 video player overlay coordinates.
 
 ### 4.3 Translation (Gemini)
 - **Glossary pass → batches:** characters (gender, name spelling), terms and tone feed every batch; **series glossary profiles** (`storage/glossaries/`) carry them across episodes.
 - **Structured output** with strict index mapping; sliding `previous_context` / `lookahead_context`; missing lines retried individually.
+- **Metric System Conversion (`convert_to_metric`):** When enabled, automatically converts non-metric imperial units (miles, feet, inches, yards, pounds/lbs, ounces, Fahrenheit, gallons, acres) into idiomatic metric equivalents (km, km/h, meters, cm, kg, Celsius, liters, dunams) with natural rounding for subtitle reading speed, while preserving figurative/idiomatic expressions ("give an inch", "walk a mile").
 - **Per-step models:** *Translation*, *Glossary pass* and *On-screen text (vision)* each have their own model and thinking level. The catalog (`core/model_catalog.py`) knows prices (including dated promotions and long-context tiers), supported thinking modes and which models may do which task (vision needs image input); retired models are migrated automatically. Flash-Lite models are the budget choices for translation.
 - **Flex tier** (`providers/gemini_calls.py`): requests at half price with a long timeout; on capacity errors (429/503) exponential backoff, then one Standard-tier request; after two consecutive "bad" Flex results the rest of the job uses Standard.
 - **Cost:** every call records exact input/output/thinking tokens and dollars per step (`Job.usage_json`); `POST /api/settings/estimate` predicts cost for a video length before running.
@@ -164,7 +167,7 @@ Input: video + the user's own SRT / WebVTT / ASS (`utils/subtitle_parser.py` rea
 7. The result is an ordinary project (edit, re-check timing, export). A file in another language becomes the translation, with the audio's text as the original.
 
 ### 4.5 Editing operations
-All edits go through the REST API and renumber lines transactionally: single/bulk patch, **add a line** (`POST /segments`, overlap → `409`, timecode `HH:MM:SS,mmm` shared with the UI), **move** (`/segments/move`, text moves and time slots stay, only the affected span is re-checked), **re-time**, delete project.
+All edits go through the REST API and renumber lines transactionally: single/bulk patch, **add a line** (`POST /segments`, overlap → `409`, timecode `HH:MM:SS,mmm` shared with the UI), **delete a line** (`DELETE /segments/{segment_id}` with renumbering), **move** (`/segments/move`, text moves and time slots stay, only the affected span is re-checked), **re-time**, delete project. In the studio, lines can be filtered by tag (`ON_SCREEN`, `COMMS`, `FOREIGN`, or any tagged cue) as well as by CPS/confidence problems.
 
 ### 4.6 Cost-Saver Mode & Local AI Offloading (`cost_saver_mode`)
 - **Local frame pre-filtering (`onscreen_prefilter.py`):** Pillow-based edge detection and 64-bit difference hashing (`dHash`) filter out blank/textless frames and deduplicate consecutive identical title cards before calling Gemini Vision, pruning ~75–80% of Vision image tokens.
@@ -181,8 +184,9 @@ All edits go through the REST API and renumber lines transactionally: single/bul
 
 **`jobs`** — one row per project: `id`, `video_path`, `file_name`, `is_upload`, `status`, `current_stage`, `progress_percent`,
 `speed_factor`, `eta_seconds`, `error_message`, `warning_message`, `video_duration`, `audio_streams_json`, `selected_audio_stream`,
-`whisper_model`, `source_language`, `detected_language`, `vad_filter`, `comms_boost`, `detect_onscreen_text`, `enable_translation`,
-`target_language`, `gemini_model`, `context_notes`, `glossary_profile`, `glossary_json`, `usage_json`, and for sync jobs
+`whisper_model`, `source_language`, `detected_language`, `vad_filter`, `comms_boost`, `high_speech_sensitivity`, `use_embedded_subtitles`,
+`detect_onscreen_text`, `onscreen_sensitivity`, `onscreen_position`, `enable_translation`, `convert_to_metric`, `target_language`, `gemini_model`,
+`context_notes`, `glossary_profile`, `glossary_json`, `usage_json`, and for sync jobs
 `job_kind` (`transcribe` | `sync`), `sync_file_name`, `sync_source_json`, `sync_report_json`, plus timestamps.
 
 **`subtitle_segments`** — `id`, `job_id` (FK, cascade delete), `index`, `start_time`, `end_time`, `original_text`, `translated_text`,
@@ -205,7 +209,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 | System | `GET /api/system/info`, `GET /api/system/log` |
 | Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `POST /api/media/parse-subtitles`, `GET /api/media/stream/{job_id}` (HTTP Range) |
 | Jobs | `POST/GET /api/jobs` (`sync_cues` makes a sync job), `GET/DELETE /api/jobs/{id}`, `POST …/cancel`, `POST …/translate` |
-| Editing | `POST …/segments`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
+| Editing | `POST …/segments`, `DELETE …/segments/{id}`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
 | Translation tools | `PUT …/glossary`, `POST …/detect-speakers`, `GET …/qa`, `GET /api/glossary-profiles` |
 | Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log` |
 | Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |

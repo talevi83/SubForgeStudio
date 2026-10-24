@@ -710,27 +710,46 @@ def merge_timeline(
     onscreen: List[Dict[str, Any]],
     max_chars_per_line: int = 42,
     min_gap: Optional[float] = None,
+    allow_overlap: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Merge ON_SCREEN captions into the spoken timeline, sorted by start time and re-indexed 1..N.
 
-    - No overlap: the caption is inserted as its own ON_SCREEN entry.
-    - Minor overlap (less than half of the shorter of the two): the caption is trimmed to the
-      largest free window so both stay clean consecutive entries — if that window is at least
-      1s long.
-    - Simultaneous (or no usable free window): the caption is kept as its own standalone
-      ON_SCREEN entry (displayed at the top of the screen while spoken dialogue appears at the bottom).
+    When allow_overlap is True (default):
+    - ON_SCREEN captions (displayed at the top of the screen via {\\an8} / line:8%) are allowed to
+      overlap with spoken dialogue at the bottom of the screen.
+    - Each ON_SCREEN caption is kept for its full duration based on its on-screen appearance and
+      comfortable reading speed, without being shortened or delayed by speech.
+    - Spoken dialogue continues unaffected at the bottom according to its own reading pace and gaps.
+    - Consecutive ON_SCREEN captions are kept from colliding with each other at the top.
+
+    When allow_overlap is False (legacy):
+    - Minor overlaps are trimmed into the largest free window between speech lines.
     """
     min_gap = settings.min_gap_seconds if min_gap is None else min_gap
     result = [dict(s) for s in spoken]
     spoken_view = list(result)
 
-    for caption in sorted(onscreen, key=lambda c: c["start_time"]):
-        caption = dict(caption)
-        text = caption["original_text"].strip()
+    onscreen_clean: List[Dict[str, Any]] = []
+    for raw_cap in sorted(onscreen, key=lambda c: c["start_time"]):
+        caption = dict(raw_cap)
+        text = caption.get("original_text", "").strip()
         if not text:
             continue
         caption.setdefault("segment_type", SegmentType.ON_SCREEN.value)
+        # Ensure consecutive ON_SCREEN captions don't collide with each other at the top
+        if onscreen_clean:
+            prev = onscreen_clean[-1]
+            if caption["start_time"] < prev["end_time"] + min_gap:
+                prev["end_time"] = max(prev["start_time"] + 0.5, round(caption["start_time"] - min_gap, 3))
+        onscreen_clean.append(caption)
+
+    for caption in onscreen_clean:
+        if allow_overlap:
+            result.append(caption)
+            continue
+
+        # Legacy behavior: trim minor overlaps to free window
         overlaps = [(s, _overlap(s, caption)) for s in spoken_view if _overlap(s, caption) > 0]
         if not overlaps:
             result.append(caption)
@@ -752,7 +771,8 @@ def merge_timeline(
     result.sort(key=lambda s: (s["start_time"], s.get("segment_type") != SegmentType.ON_SCREEN.value))
     for i, seg in enumerate(result, start=1):
         seg["index"] = i
-        seg["cps"] = calculate_cps(seg["original_text"], max(0.1, seg["end_time"] - seg["start_time"]))
+        text_for_cps = seg.get("translated_text") or seg["original_text"]
+        seg["cps"] = calculate_cps(text_for_cps, max(0.1, seg["end_time"] - seg["start_time"]))
     return result
 
 
@@ -873,7 +893,13 @@ class RefineStage(PipelineStage):
             min_gap=settings.min_gap_seconds,
         )
         foreign = sum(1 for s in spoken if s.get("segment_type") == SegmentType.FOREIGN.value)
-        ctx.refined_segments = merge_timeline(spoken, ctx.onscreen_segments, settings.max_chars_per_line)
+        allow_overlap = getattr(ctx, "allow_onscreen_overlap", True)
+        ctx.refined_segments = merge_timeline(
+            spoken,
+            ctx.onscreen_segments,
+            settings.max_chars_per_line,
+            allow_overlap=allow_overlap,
+        )
 
         if on_progress:
             extras = []

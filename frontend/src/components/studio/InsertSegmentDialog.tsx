@@ -56,12 +56,12 @@ export const InsertSegmentDialog: React.FC<{ draft: InsertDraft }> = ({ draft })
   const hasTranslation = !!activeJob && activeJob.segments.some((s) => s.translated_text);
   const translationRtl = isRtlLanguage(activeJob?.target_language);
 
+  const [onScreen, setOnScreen] = useState(false);
   const [initStart, initEnd] = useMemo(() => initialRange(draft, sorted, duration), [draft]); // eslint-disable-line react-hooks/exhaustive-deps
   const [startText, setStartText] = useState(formatTimecode(initStart));
   const [endText, setEndText] = useState(formatTimecode(initEnd));
   const [original, setOriginal] = useState('');
   const [translated, setTranslated] = useState('');
-  const [onScreen, setOnScreen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const firstText = useRef<HTMLTextAreaElement | null>(null);
@@ -73,6 +73,11 @@ export const InsertSegmentDialog: React.FC<{ draft: InsertDraft }> = ({ draft })
     return () => window.removeEventListener('keydown', onKey);
   }, [closeInsert]);
 
+  const relevantSorted = useMemo(
+    () => sorted.filter((s) => (onScreen ? s.segment_type === 'ON_SCREEN' : s.segment_type !== 'ON_SCREEN')),
+    [sorted, onScreen]
+  );
+
   const start = parseTimecode(startText);
   const end = parseTimecode(endText);
   const setStart = (x: number) => setStartText(formatTimecode(round3(Math.max(0, x))));
@@ -80,9 +85,9 @@ export const InsertSegmentDialog: React.FC<{ draft: InsertDraft }> = ({ draft })
 
   // Neighbours of the new line (by its start; the opening guess while the start is invalid)
   const anchor = start ?? initStart;
-  const nextPos = sorted.findIndex((s) => s.start_time >= anchor - 0.0005);
-  const next = nextPos >= 0 ? sorted[nextPos] : undefined;
-  const before = nextPos >= 0 ? sorted.slice(0, nextPos) : sorted;
+  const nextPos = relevantSorted.findIndex((s) => s.start_time >= anchor - 0.0005);
+  const next = nextPos >= 0 ? relevantSorted[nextPos] : undefined;
+  const before = nextPos >= 0 ? relevantSorted.slice(0, nextPos) : relevantSorted;
   const prev = before.length ? before[before.length - 1] : undefined;
   const gapFrom = prev ? prev.end_time + GAP : 0;
   const gapTo = next ? next.start_time - GAP : duration ?? null;

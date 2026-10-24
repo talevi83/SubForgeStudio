@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { OnscreenPosition } from '../../types';
 import { api } from '../../services/api';
 import { useJobStore } from '../../store/useJobStore';
 import { useUiStore } from '../../store/useUiStore';
@@ -354,6 +355,24 @@ export const PipelineConfig: React.FC = () => {
                   className="w-full bg-surface border border-line rounded-lg p-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 pt-2.5 border-t border-line/40 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={pipelineConfig.convert_to_metric ?? false}
+                  onChange={(e) => updatePipelineConfig({ convert_to_metric: e.target.checked })}
+                  className="mt-0.5 rounded border-zinc-700 text-indigo-500 focus:ring-indigo-400 bg-zinc-800 cursor-pointer"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-zinc-200 font-medium text-xs flex items-center gap-1.5">
+                    <span>📏</span>
+                    <span>{t('config.metricTitle')}</span>
+                  </span>
+                  <span className="text-zinc-400 text-[11px] leading-relaxed block">
+                    {t('config.metricDescription')}
+                  </span>
+                </div>
+              </label>
             </div>
           ) : (
             <div className="py-6 text-center text-zinc-500 text-xs">{t('config.translationDisabled')}</div>
@@ -435,6 +454,43 @@ export const PipelineConfig: React.FC = () => {
                 {(pipelineConfig.onscreen_sensitivity ?? 2) === 3 && t('config.onscreenSensitivityDescBroad')}
               </p>
             </div>
+          )}
+          {pipelineConfig.detect_onscreen_text && (
+            <>
+              <label className="flex items-start gap-2.5 mt-3 pt-3 border-t border-indigo-500/20 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={pipelineConfig.allow_onscreen_overlap ?? true}
+                  onChange={(e) => updatePipelineConfig({ allow_onscreen_overlap: e.target.checked })}
+                  className="mt-0.5 rounded border-zinc-700 text-indigo-500 focus:ring-indigo-400 bg-zinc-800 cursor-pointer"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-zinc-200 font-medium text-xs block">
+                    {t('config.onscreenOverlapTitle')}
+                  </span>
+                  <span className="text-zinc-400 text-[11px] leading-relaxed block">
+                    {t('config.onscreenOverlapDescription')}
+                  </span>
+                </div>
+              </label>
+
+              <div className="pt-2.5 mt-2.5 border-t border-indigo-500/20 flex items-center justify-between text-xs">
+                <span className="text-zinc-300 font-medium">
+                  {t('config.onscreenPositionLabel')}
+                </span>
+                <select
+                  value={pipelineConfig.onscreen_position || 'top_center'}
+                  onChange={(e) => updatePipelineConfig({ onscreen_position: e.target.value as OnscreenPosition })}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="top_center">{t('settings.pos.top_center')}</option>
+                  <option value="middle_right">{t('settings.pos.middle_right')}</option>
+                  <option value="middle_left">{t('settings.pos.middle_left')}</option>
+                  <option value="top_right">{t('settings.pos.top_right')}</option>
+                  <option value="top_left">{t('settings.pos.top_left')}</option>
+                </select>
+              </div>
+            </>
           )}
         </FeatureToggle>
       </div>

@@ -31,6 +31,9 @@ _ADDED_COLUMNS = {
         "sync_report_json": "VARCHAR",
         "onscreen_sensitivity": "INTEGER NOT NULL DEFAULT 2",
         "high_speech_sensitivity": "BOOLEAN NOT NULL DEFAULT 0",
+        "allow_onscreen_overlap": "BOOLEAN NOT NULL DEFAULT 1",
+        "onscreen_position": "VARCHAR NOT NULL DEFAULT 'top_center'",
+        "convert_to_metric": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "subtitle_segments": {
         "translation_failed": "BOOLEAN NOT NULL DEFAULT 0",

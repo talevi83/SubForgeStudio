@@ -151,6 +151,12 @@ export const en = {
       'Captures chyrons, narrative titles, messages, and key plot signs framed in close-up.',
     onscreenSensitivityDescBroad:
       'Captures almost all readable on-screen text, including signs, HUD headers, and close-up documents.',
+    onscreenOverlapTitle: 'Allow Overlap with Dialogue (Top & Bottom)',
+    onscreenOverlapDescription:
+      'Displays on-screen text (speaker chyrons, titles, signs) at the top of the screen simultaneously with spoken dialogue at the bottom, without shortening either.',
+    onscreenPositionLabel: 'Screen position',
+    metricTitle: 'Convert to Metric System',
+    metricDescription: 'Converts miles, feet, pounds, Fahrenheit etc. to km, meters, kg, and Celsius.',
     highSpeechSensitivityTitle: 'High Speech Sensitivity (Catch Whispers)',
     highSpeechSensitivityDesc:
       'Relaxes voice activity thresholds to catch quiet whispers, rapid speech, and dialogue over loud background music.',
@@ -256,6 +262,13 @@ export const en = {
     noMatches: 'No matches',
     showing: 'Showing {shown} of {total} subtitle blocks',
     livePreview: 'live preview, editable when processing finishes',
+    filterByTagLabel: 'Filter by tag',
+    allTags: 'All types',
+    anyTag: 'Any tagged ({count})',
+    filterByTag: 'Filter by {tag}',
+    clearTagFilter: 'Clear tag filter',
+    deleteRow: 'Delete line #{index}',
+    confirmDeleteRow: 'Delete line #{index}?',
     onlyProblems: 'Only problems ({count})',
     onlyProblemsTitle: 'Too fast to read, or failed to translate',
     autoScroll: 'Auto-scroll with video',
@@ -441,6 +454,16 @@ export const en = {
     frameDetail: 'Frame detail',
     frameDetailHint: 'Tokens per frame: low 280 · medium 560 · high 1120',
     resolution: { low: 'Low', medium: 'Medium', high: 'High' },
+    onscreenPosition: 'On-Screen OCR Text Position',
+    onscreenPositionHint:
+      'Where on-screen text (speaker chyrons, titles, signs) will be placed in the video player and exported subtitles (SRT {\\anX} / WebVTT).',
+    pos: {
+      top_center: 'Top Center (Default)',
+      middle_right: 'Center Right',
+      middle_left: 'Center Left',
+      top_right: 'Top Right',
+      top_left: 'Top Left',
+    },
     price: '{input} input · {output} output (incl. thinking) per 1M tokens',
     priceLong: 'Prompts over 200k tokens: {input} / {output}',
     priceChange: 'Promotional price — {input} / {output} per 1M from {date}',
@@ -524,6 +547,11 @@ export const en = {
       advancedTitle: 'For Advanced Users:',
       advancedText: 'Prefer manual setup or custom open models? Download Ollama directly and pull any supported text model (qwen2.5, gemma, or llama):',
       downloadLink: 'Download Ollama from ollama.com',
+    },
+    metric: {
+      label: 'Convert Measurements to Metric System',
+      description:
+        'Automatically converts Imperial units (miles, feet, inches, yards, pounds, Fahrenheit, gallons, acres) into standard Metric units (km, meters, cm, kg, Celsius, liters, dunams) naturally rounded for subtitle readability.',
     },
     help: {
       title: 'Help, User Guide & Q&A',

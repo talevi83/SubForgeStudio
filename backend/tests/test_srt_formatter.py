@@ -129,3 +129,28 @@ def test_serialize_onscreen_top_position_in_srt_and_vtt():
     assert "00:00:10.000 --> 00:00:14.000 line:8%" in vtt
     assert "00:00:11.000 --> 00:00:13.000\n" in vtt
 
+
+def test_onscreen_positions_in_srt_and_vtt():
+    segments = [
+        {
+            "start_time": 5.0,
+            "end_time": 9.0,
+            "original_text": "[Dr. Jane Doe]",
+            "translated_text": "[ד\"ר ג'יין דו]",
+            "segment_type": "ON_SCREEN",
+        }
+    ]
+    # Middle right (e.g. for interview chyrons on the right)
+    srt_mr = serialize_to_srt(segments, use_translated=False, onscreen_position="middle_right")
+    assert "{\\an6}[Dr. Jane Doe]" in srt_mr
+
+    vtt_mr = serialize_to_vtt(segments, use_translated=False, onscreen_position="middle_right")
+    assert "line:50% position:90% align:end" in vtt_mr
+
+    # Middle left
+    srt_ml = serialize_to_srt(segments, use_translated=False, onscreen_position="middle_left")
+    assert "{\\an4}[Dr. Jane Doe]" in srt_ml
+
+    vtt_ml = serialize_to_vtt(segments, use_translated=False, onscreen_position="middle_left")
+    assert "line:50% position:10% align:start" in vtt_ml
+

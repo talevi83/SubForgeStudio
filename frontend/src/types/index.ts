@@ -48,6 +48,7 @@ export interface SubtitleStreamInfo {
 }
 
 export type SegmentType = 'DIALOGUE' | 'COMMS' | 'ON_SCREEN' | 'FOREIGN';
+export type OnscreenPosition = 'top_center' | 'top_left' | 'top_right' | 'middle_left' | 'middle_right';
 
 export interface VideoStreamInfo {
   codec_name: string;
@@ -122,6 +123,9 @@ export interface Job {
   use_embedded_subtitles?: boolean;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
+  allow_onscreen_overlap?: boolean;
+  onscreen_position?: OnscreenPosition;
+  convert_to_metric?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_model: string;
@@ -232,6 +236,9 @@ export interface JobConfig {
   use_embedded_subtitles?: boolean;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
+  allow_onscreen_overlap?: boolean;
+  onscreen_position?: OnscreenPosition;
+  convert_to_metric?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_api_key_override?: string;
@@ -334,6 +341,8 @@ export interface AppSettings {
   glossary: GeminiCallSettings;
   vision: GeminiCallSettings;
   vision_media_resolution: MediaResolution;
+  onscreen_position?: OnscreenPosition;
+  convert_to_metric?: boolean;
   cost_saver_mode?: boolean;
 }
 

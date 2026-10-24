@@ -126,6 +126,9 @@ def _job_to_response(
         use_embedded_subtitles=getattr(job, "use_embedded_subtitles", True),
         detect_onscreen_text=job.detect_onscreen_text,
         onscreen_sensitivity=getattr(job, "onscreen_sensitivity", 2),
+        allow_onscreen_overlap=getattr(job, "allow_onscreen_overlap", True),
+        onscreen_position=getattr(job, "onscreen_position", "top_center") or "top_center",
+        convert_to_metric=getattr(job, "convert_to_metric", False),
         enable_translation=job.enable_translation,
         target_language=job.target_language,
         gemini_model=job.gemini_model,
@@ -180,6 +183,9 @@ async def create_job(req: JobCreate, session: Session = Depends(get_session)):
         use_embedded_subtitles=req.use_embedded_subtitles,
         detect_onscreen_text=req.detect_onscreen_text,
         onscreen_sensitivity=req.onscreen_sensitivity,
+        allow_onscreen_overlap=req.allow_onscreen_overlap,
+        onscreen_position=req.onscreen_position or getattr(load_settings(), "onscreen_position", "top_center"),
+        convert_to_metric=req.convert_to_metric or getattr(load_settings(), "convert_to_metric", False),
         enable_translation=req.enable_translation,
         target_language=req.target_language,
         gemini_model=req.gemini_model or load_settings().translation.model,
@@ -550,7 +556,16 @@ def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(g
         raise HTTPException(status_code=422, detail=f"Unknown line type: {req.segment_type}")
 
     rows = _ordered_rows(session, job_id)
-    clash = next((r for r in rows if start < r.end_time - 0.0005 and end > r.start_time + 0.0005), None)
+    if kind == "ON_SCREEN":
+        clash = next(
+            (r for r in rows if r.segment_type == "ON_SCREEN" and start < r.end_time - 0.0005 and end > r.start_time + 0.0005),
+            None,
+        )
+    else:
+        clash = next(
+            (r for r in rows if r.segment_type != "ON_SCREEN" and start < r.end_time - 0.0005 and end > r.start_time + 0.0005),
+            None,
+        )
     if clash is not None:
         position = rows.index(clash) + 1
         raise HTTPException(status_code=409, detail=(
@@ -571,6 +586,29 @@ def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(g
     session.commit()
     session.refresh(new)
     return SegmentsChangeResponse(changed=1, created_id=new.id, segments=[_segment_to_schema(r) for r in rows])
+
+
+@router.delete("/{job_id}/segments/{segment_id}", response_model=SegmentsChangeResponse)
+def delete_segment(job_id: str, segment_id: int, session: Session = Depends(get_session)):
+    """Delete a subtitle line by user request and renumber subsequent lines."""
+    job = _get_job_or_404(session, job_id)
+    if job.status in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="The job is still running; delete lines when it has finished")
+    seg = session.get(SubtitleSegmentRecord, segment_id)
+    if not seg or seg.job_id != job_id:
+        raise HTTPException(status_code=404, detail="Subtitle segment not found")
+
+    session.delete(seg)
+    session.flush()
+
+    rows = _ordered_rows(session, job_id)
+    rows.sort(key=lambda r: (r.start_time, r.end_time))
+    for position, row in enumerate(rows, start=1):
+        row.index = position
+        session.add(row)
+    session.commit()
+
+    return SegmentsChangeResponse(changed=1, segments=[_segment_to_schema(r) for r in rows])
 
 
 # --- Timing-only tools -------------------------------------------------------------------------

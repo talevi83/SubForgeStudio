@@ -7,7 +7,7 @@ import { RowTranslateDialog } from './RowTranslateDialog';
 import { InsertSegmentDialog } from './InsertSegmentDialog';
 import { findSegmentAt } from '../../utils/time';
 import { useT } from '../../i18n';
-import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus } from 'lucide-react';
+import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag } from 'lucide-react';
 import { api } from '../../services/api';
 import type { QAIssue } from '../../types';
 
@@ -22,6 +22,7 @@ export const SubtitleTable: React.FC = () => {
   const seekTo = useJobStore((s) => s.seekTo);
   const updateSegment = useJobStore((s) => s.updateSegment);
   const replaceAll = useJobStore((s) => s.replaceAll);
+  const deleteSegment = useJobStore((s) => s.deleteSegment);
   const retimeActiveJob = useJobStore((s) => s.retimeActiveJob);
   const undoRetime = useJobStore((s) => s.undoRetime);
   const moveSegment = useJobStore((s) => s.moveSegment);
@@ -38,6 +39,7 @@ export const SubtitleTable: React.FC = () => {
   const [targetColumn, setTargetColumn] = useState<'translated' | 'original'>('translated');
   const [autoScroll, setAutoScroll] = useState(true);
   const [onlyProblems, setOnlyProblems] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string>('ALL');
   const [replaceResult, setReplaceResult] = useState<string | null>(null);
 
   const activeRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -72,18 +74,41 @@ export const SubtitleTable: React.FC = () => {
   );
   const problemCount = useMemo(() => segments.filter(isProblem).length, [segments, isProblem]);
 
+  const tagCounts = useMemo(() => {
+    let onscreen = 0;
+    let comms = 0;
+    let foreign = 0;
+    let anyTagged = 0;
+    for (const s of segments) {
+      if (s.segment_type && s.segment_type !== 'DIALOGUE') {
+        anyTagged++;
+        if (s.segment_type === 'ON_SCREEN') onscreen++;
+        else if (s.segment_type === 'COMMS') comms++;
+        else if (s.segment_type === 'FOREIGN') foreign++;
+      }
+    }
+    return { onscreen, comms, foreign, anyTagged };
+  }, [segments]);
+
   const filteredSegments = useMemo(() => {
     let list = segments;
     if (onlyProblems) list = list.filter(isProblem);
+    if (tagFilter !== 'ALL') {
+      if (tagFilter === 'TAGGED') {
+        list = list.filter((s) => s.segment_type && s.segment_type !== 'DIALOGUE');
+      } else {
+        list = list.filter((s) => s.segment_type === tagFilter);
+      }
+    }
     if (!searchTerm.trim()) return list;
     const term = searchTerm.toLowerCase();
     return list.filter(
       (s) => s.original_text.toLowerCase().includes(term) || s.translated_text?.toLowerCase().includes(term)
     );
-  }, [segments, searchTerm, onlyProblems, isProblem]);
+  }, [segments, searchTerm, onlyProblems, isProblem, tagFilter]);
 
   // Moving rows only makes sense in the full, time-ordered list of a finished job
-  const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm.trim() && !onlyProblems && !timingBusy;
+  const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm.trim() && !onlyProblems && tagFilter === 'ALL' && !timingBusy;
   const canRecheck = !!activeJob && !isActiveStatus(activeJob.status) && segments.length > 0;
 
   const handleDragStart = useCallback((id: number) => setDragId(id), []);
@@ -250,16 +275,69 @@ export const SubtitleTable: React.FC = () => {
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
-          <span>
-            {replaceResult ? (
-              <span className="text-indigo-300">{replaceResult}</span>
-            ) : (
-              <>
-                {t('table.showing', { shown: filteredSegments.length, total: segments.length })}
-                {isLive && <span className="text-zinc-500"> · {t('table.livePreview')}</span>}
-              </>
-            )}
-          </span>
+          <div className="flex items-center gap-3">
+            <span>
+              {replaceResult ? (
+                <span className="text-indigo-300">{replaceResult}</span>
+              ) : (
+                <>
+                  {t('table.showing', { shown: filteredSegments.length, total: segments.length })}
+                  {isLive && <span className="text-zinc-500"> · {t('table.livePreview')}</span>}
+                </>
+              )}
+            </span>
+
+            {/* Tag / Segment-type filter */}
+            <div className="flex items-center gap-1.5 ms-1">
+              <div
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs transition-colors ${
+                  tagFilter === 'ALL'
+                    ? 'border-line bg-surface/70 text-zinc-400'
+                    : tagFilter === 'ON_SCREEN'
+                    ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300 font-medium'
+                    : tagFilter === 'COMMS'
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300 font-medium'
+                    : tagFilter === 'FOREIGN'
+                    ? 'border-purple-500/50 bg-purple-500/10 text-purple-300 font-medium'
+                    : 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300 font-medium'
+                }`}
+              >
+                <Tag className="w-3 h-3 opacity-70" />
+                <select
+                  aria-label={t('table.filterByTagLabel')}
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className="bg-transparent border-0 text-inherit text-[11px] font-inherit focus:outline-none cursor-pointer pr-1"
+                >
+                  <option value="ALL" className="bg-zinc-900 text-zinc-300">{t('table.allTags')}</option>
+                  {tagCounts.anyTagged > 0 && (
+                    <option value="TAGGED" className="bg-zinc-900 text-zinc-300">
+                      {t('table.anyTag', { count: tagCounts.anyTagged })}
+                    </option>
+                  )}
+                  <option value="ON_SCREEN" className="bg-zinc-900 text-zinc-300">
+                    📺 {t('table.onscreenBadge')} ({tagCounts.onscreen})
+                  </option>
+                  <option value="COMMS" className="bg-zinc-900 text-zinc-300">
+                    📻 {t('table.commsBadge')} ({tagCounts.comms})
+                  </option>
+                  <option value="FOREIGN" className="bg-zinc-900 text-zinc-300">
+                    🌐 {t('table.foreignBadge')} ({tagCounts.foreign})
+                  </option>
+                </select>
+                {tagFilter !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => setTagFilter('ALL')}
+                    title={t('table.clearTagFilter')}
+                    className="p-0.5 rounded hover:bg-white/10 text-inherit opacity-70 hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-1.5 cursor-pointer select-none" title={isSyncJob ? t('table.onlyProblemsSyncTitle') : t('table.onlyProblemsTitle')}>
               <input
@@ -470,6 +548,8 @@ export const SubtitleTable: React.FC = () => {
                     checked={checked.has(seg.id ?? -1)}
                     onCheck={canSelect ? handleCheck : undefined}
                     onInsertAfter={canInsert ? insertAfter : undefined}
+                    onDelete={canInsert ? (s) => s.id && void deleteSegment(s.id) : undefined}
+                    onFilterTag={setTagFilter}
                     dnd={
                       canDrag && seg.id
                         ? {

@@ -104,6 +104,25 @@ def _ensure_brackets(text: str) -> str:
     return f"[{' — '.join(lines)}]" if lines else s
 
 
+_SRT_POS_MAP = {
+    "top_center": "{\\an8}",
+    "top_left": "{\\an7}",
+    "top_right": "{\\an9}",
+    "middle_left": "{\\an4}",
+    "middle_right": "{\\an6}",
+    "middle_center": "{\\an5}",
+}
+
+_VTT_POS_MAP = {
+    "top_center": " line:8%",
+    "top_left": " line:8% position:10% align:start",
+    "top_right": " line:8% position:90% align:end",
+    "middle_left": " line:50% position:10% align:start",
+    "middle_right": " line:50% position:90% align:end",
+    "middle_center": " line:50% position:50% align:center",
+}
+
+
 def _serialize_blocks(
     segments: List[Any],
     use_translated: bool,
@@ -111,6 +130,7 @@ def _serialize_blocks(
     max_chars_per_line: int,
     format_ts,
     fmt: str = "srt",
+    onscreen_position: str = "top_center",
 ) -> List[str]:
     blocks: List[str] = []
     ordered = sorted(
@@ -128,8 +148,9 @@ def _serialize_blocks(
         if apply_rtl:
             formatted_text = apply_rtl_fix(formatted_text)
         if is_top and fmt == "srt":
-            formatted_text = f"{{\\an8}}{formatted_text}"
-        cue_settings = " line:8%" if (is_top and fmt == "vtt") else ""
+            pos_tag = _SRT_POS_MAP.get(onscreen_position, "{\\an8}")
+            formatted_text = f"{pos_tag}{formatted_text}"
+        cue_settings = _VTT_POS_MAP.get(onscreen_position, " line:8%") if (is_top and fmt == "vtt") else ""
         blocks.append(
             f"{len(blocks) + 1}\n{format_ts(start_time)} --> {format_ts(end_time)}{cue_settings}\n{formatted_text}\n"
         )
@@ -164,10 +185,19 @@ def serialize_to_srt(
     use_translated: bool = False,
     apply_rtl: bool = True,
     max_chars_per_line: int = 42,
+    onscreen_position: str = "top_center",
 ) -> str:
     """Serialize segment dictionaries or models into a standard .srt file string."""
     return "\n".join(
-        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_srt_timestamp, fmt="srt")
+        _serialize_blocks(
+            segments,
+            use_translated,
+            apply_rtl,
+            max_chars_per_line,
+            format_srt_timestamp,
+            fmt="srt",
+            onscreen_position=onscreen_position,
+        )
     )
 
 
@@ -176,10 +206,19 @@ def serialize_to_vtt(
     use_translated: bool = False,
     apply_rtl: bool = True,
     max_chars_per_line: int = 42,
+    onscreen_position: str = "top_center",
 ) -> str:
     """Serialize segment dictionaries or models into a WebVTT file string."""
     blocks = ["WEBVTT\n"]
     blocks.extend(
-        _serialize_blocks(segments, use_translated, apply_rtl, max_chars_per_line, format_vtt_timestamp, fmt="vtt")
+        _serialize_blocks(
+            segments,
+            use_translated,
+            apply_rtl,
+            max_chars_per_line,
+            format_vtt_timestamp,
+            fmt="vtt",
+            onscreen_position=onscreen_position,
+        )
     )
     return "\n".join(blocks)

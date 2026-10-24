@@ -165,6 +165,11 @@ export const api = {
     return request(`${API_BASE}/jobs/${jobId}/segments`, json('POST', body), 'Could not add the line');
   },
 
+  /** Delete a subtitle line by user request. */
+  deleteSegment(jobId: string, segmentId: number): Promise<SegmentsChange> {
+    return request(`${API_BASE}/jobs/${jobId}/segments/${segmentId}`, { method: 'DELETE' }, 'Could not delete the line');
+  },
+
   moveSegment(jobId: string, segmentId: number, toPosition: number): Promise<SegmentsChange> {
     return request(
       `${API_BASE}/jobs/${jobId}/segments/move`,

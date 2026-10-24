@@ -30,6 +30,9 @@ const DEFAULT_CONFIG: JobConfig = {
   use_embedded_subtitles: true,
   detect_onscreen_text: false,
   onscreen_sensitivity: 2,
+  allow_onscreen_overlap: true,
+  onscreen_position: 'top_center',
+  convert_to_metric: false,
   enable_translation: true,
   target_language: 'Hebrew',
   gemini_api_key_override: '',
@@ -119,6 +122,8 @@ interface JobState {
   closeInsert: () => void;
   /** Add a line; resolves to an error message, or null when it was added */
   addSegment: (body: SegmentCreate) => Promise<string | null>;
+  /** Delete a line; resolves to an error message, or null when it was deleted */
+  deleteSegment: (segmentId: number) => Promise<string | null>;
   /** New project: make subtitles from the audio, or sync a subtitle file the user already has */
   ingestMode: IngestMode;
   syncFile: ParsedSubtitles | null;
@@ -289,6 +294,19 @@ export const useJobStore = create<JobState>((set, get) => {
         const created = res.segments.find((s) => s.id === res.created_id);
         set({ insertDraft: null, selectedSegmentIndex: created?.index ?? null });
         if (created) get().seekTo(Math.max(0, created.start_time - 0.5));
+        return null;
+      } catch (e: unknown) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
+    deleteSegment: async (segmentId) => {
+      const job = get().activeJob;
+      if (!job) return 'No project is open';
+      try {
+        const res = await api.deleteSegment(job.id, segmentId);
+        if (get().activeJob?.id !== job.id) return null;
+        patchActiveJob({ segments: res.segments });
+        set({ selectedSegmentIndex: null });
         return null;
       } catch (e: unknown) {
         return e instanceof Error ? e.message : String(e);

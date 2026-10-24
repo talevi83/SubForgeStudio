@@ -39,11 +39,13 @@ def _export(job_id: str, session: Session, use_translated: bool, apply_rtl: bool
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     serializer = serialize_to_srt if fmt == "srt" else serialize_to_vtt
+    onscreen_pos = getattr(job, "onscreen_position", "top_center") or "top_center"
     content = serializer(
         job.segments,
         use_translated=use_translated,
         apply_rtl=apply_rtl,
         max_chars_per_line=max_chars_per_line or settings.max_chars_per_line,
+        onscreen_position=onscreen_pos,
     )
     media_type = "application/x-subrip; charset=utf-8" if fmt == "srt" else "text/vtt; charset=utf-8"
     # UTF-8 BOM: some players (and Windows Notepad) otherwise mis-detect Hebrew as ANSI.

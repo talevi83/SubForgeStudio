@@ -25,6 +25,38 @@ export const VideoSyncPlayer: React.FC = () => {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
+  const onscreenPos = activeJob?.onscreen_position || 'top_center';
+
+  const getOnscreenContainerClass = (pos: string) => {
+    switch (pos) {
+      case 'top_left':
+        return 'absolute top-6 left-6 max-w-[48%] flex flex-col items-start gap-1.5 pointer-events-none z-10';
+      case 'top_right':
+        return 'absolute top-6 right-6 max-w-[48%] flex flex-col items-end gap-1.5 pointer-events-none z-10';
+      case 'middle_left':
+        return 'absolute top-1/2 -translate-y-1/2 left-6 max-w-[48%] flex flex-col items-start gap-1.5 pointer-events-none z-10';
+      case 'middle_right':
+        return 'absolute top-1/2 -translate-y-1/2 right-6 max-w-[48%] flex flex-col items-end gap-1.5 pointer-events-none z-10';
+      case 'top_center':
+      default:
+        return 'absolute top-6 inset-x-4 flex flex-col items-center gap-1.5 pointer-events-none z-10';
+    }
+  };
+
+  const getOnscreenTextClass = (pos: string) => {
+    switch (pos) {
+      case 'top_left':
+      case 'middle_left':
+        return 'text-left';
+      case 'top_right':
+      case 'middle_right':
+        return 'text-right';
+      case 'top_center':
+      default:
+        return 'text-center';
+    }
+  };
+
   const jobId = activeJob?.id;
   const videoSrc = useMemo(() => (jobId ? api.getVideoStreamUrl(jobId) : ''), [jobId]);
 
@@ -290,11 +322,11 @@ export const VideoSyncPlayer: React.FC = () => {
         )}
 
         {topOverlays.length > 0 && (
-          <div className="absolute top-6 inset-x-4 flex flex-col items-center gap-1.5 pointer-events-none z-10">
+          <div className={getOnscreenContainerClass(onscreenPos)}>
             {topOverlays.map((item) => (
               <div
                 key={item.key}
-                className={`max-w-[90%] bg-black/80 px-4 py-1.5 rounded-lg text-center space-y-1 border border-cyan-500/25 ${
+                className={`max-w-[90%] bg-black/80 px-4 py-1.5 rounded-lg space-y-1 border border-cyan-500/25 ${getOnscreenTextClass(onscreenPos)} ${
                   isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
                 }`}
               >

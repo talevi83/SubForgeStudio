@@ -8,7 +8,7 @@ import type { MessageKey } from '../../i18n';
 import { useCostEstimate } from '../../hooks/useCostEstimate';
 import { thinkingLabel, modelLabel } from './labels';
 import type {
-  AppSettings, CatalogModel, GeminiCallSettings, MediaResolution, ModelCheckResponse, ModelCheckResult, OllamaStatus, PipelineTask, ThinkingLevel,
+  AppSettings, CatalogModel, GeminiCallSettings, MediaResolution, ModelCheckResponse, ModelCheckResult, OllamaStatus, OnscreenPosition, PipelineTask, ThinkingLevel,
 } from '../../types';
 import { api } from '../../services/api';
 import { StorageSection } from './StorageSection';
@@ -474,7 +474,92 @@ export const SettingsScreen: React.FC = () => {
                   <p className="text-[11px] text-zinc-500">{t('settings.frameDetailHint')}</p>
                 </div>
               )}
+
+              <div className="space-y-2 pt-3 border-t border-line/40">
+                <div className="flex items-center justify-between">
+                  <span className="block text-[11px] text-zinc-300 font-medium">
+                    {t('settings.onscreenPosition')}
+                  </span>
+                  <span className="text-[11px] font-semibold text-indigo-400">
+                    {t(`settings.pos.${draft.onscreen_position || 'top_center'}` as MessageKey)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {(
+                    [
+                      { id: 'top_center', icon: '⬆️' },
+                      { id: 'middle_right', icon: '➡️' },
+                      { id: 'middle_left', icon: '⬅️' },
+                      { id: 'top_right', icon: '↗️' },
+                      { id: 'top_left', icon: '↖️' },
+                    ] as const satisfies readonly { id: OnscreenPosition; icon: string }[]
+                  ).map((p) => {
+                    const active = (draft.onscreen_position || 'top_center') === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setDraft({ ...draft, onscreen_position: p.id })}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-500 text-white font-medium shadow-sm'
+                            : 'bg-sunken border-line text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                        }`}
+                      >
+                        <span className="text-sm">{p.icon}</span>
+                        <span className="truncate">{t(`settings.pos.${p.id}` as MessageKey)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-zinc-500">{t('settings.onscreenPositionHint')}</p>
+              </div>
             </ModelCard>
+
+            <div
+              className={`rounded-xl border transition-colors ${
+                draft.convert_to_metric
+                  ? 'bg-indigo-500/10 border-indigo-500/40'
+                  : 'bg-sunken border-line hover:border-zinc-600'
+              }`}
+            >
+              <label
+                className="flex items-start gap-3 p-4 cursor-pointer"
+                data-testid="metric-conversion-toggle"
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold text-zinc-100 flex items-center gap-1.5">
+                    <span>📏</span>
+                    <span>{t('settings.metric.label')}</span>
+                  </span>
+                  <span className="block text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                    {t('settings.metric.description')}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  data-testid="metric-conversion-switch"
+                  aria-checked={!!draft.convert_to_metric}
+                  checked={!!draft.convert_to_metric}
+                  onChange={(e) => setDraft({ ...draft, convert_to_metric: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <span
+                  className={`relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 ${
+                    draft.convert_to_metric ? 'bg-indigo-600' : 'bg-zinc-700'
+                  }`}
+                  aria-hidden
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                      draft.convert_to_metric ? 'start-4.5' : 'start-0.5'
+                    }`}
+                  />
+                </span>
+              </label>
+            </div>
 
             <div
               className={`rounded-xl border transition-colors ${

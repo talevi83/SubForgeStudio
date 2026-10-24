@@ -56,6 +56,22 @@ def test_rejects_an_overlap_and_names_the_line(client):
     assert ok.status_code == 200
 
 
+def test_allows_onscreen_overlap_with_dialogue(client):
+    job_id = _job()
+    # Line #1 is 0..3 (First), Line #2 is 10..12 (Second)
+    # Adding an ON_SCREEN segment spanning 1..11 overlaps both dialogue lines, which is permitted:
+    ok = client.post(f"/api/jobs/{job_id}/segments", json={
+        "start_time": 1.0, "end_time": 11.0, "original_text": "[Dr. Jane Doe]", "segment_type": "ON_SCREEN"
+    })
+    assert ok.status_code == 200
+
+    # But adding another ON_SCREEN segment that overlaps the first ON_SCREEN segment is rejected:
+    res = client.post(f"/api/jobs/{job_id}/segments", json={
+        "start_time": 5.0, "end_time": 8.0, "original_text": "[Prof. Smith]", "segment_type": "ON_SCREEN"
+    })
+    assert res.status_code == 409
+
+
 @pytest.mark.parametrize("payload,code", [
     ({"start_time": 5.0, "end_time": 5.0, "original_text": "x"}, 422),     # no length
     ({"start_time": 6.0, "end_time": 5.0, "original_text": "x"}, 422),     # reversed
@@ -82,3 +98,27 @@ def test_running_job_and_unknown_job(client):
                        json={"start_time": 4, "end_time": 5, "original_text": "x"}).status_code == 409
     assert client.post("/api/jobs/job_missing/segments",
                        json={"start_time": 4, "end_time": 5, "original_text": "x"}).status_code == 404
+
+
+def test_delete_segment_and_renumber(client):
+    job_id = _job(translated=True)
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    segs = job_data["segments"]
+    assert len(segs) == 3
+    target_id = segs[1]["id"]  # delete "Second" (index 2)
+
+    res = client.delete(f"/api/jobs/{job_id}/segments/{target_id}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["changed"] == 1
+    new_segs = body["segments"]
+    assert len(new_segs) == 2
+    assert [s["original_text"] for s in new_segs] == ["First", "Third"]
+    assert [s["index"] for s in new_segs] == [1, 2]
+
+    # Trying to delete on a running job or non-existent segment
+    running_id = _job(status=JobStatus.TRANSCRIBING)
+    r_segs = client.get(f"/api/jobs/{running_id}").json()["segments"]
+    assert client.delete(f"/api/jobs/{running_id}/segments/{r_segs[0]['id']}").status_code == 409
+    assert client.delete(f"/api/jobs/{job_id}/segments/99999").status_code == 404
+

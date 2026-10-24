@@ -40,6 +40,7 @@ Thumbs.db
 
 # Scratch folder for files queued for manual deletion
 _to_delete/
+_backup_local_translation/
 
 # EXE build output
 /build/

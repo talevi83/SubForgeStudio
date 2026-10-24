@@ -63,15 +63,28 @@ def test_onscreen_in_silence_becomes_its_own_entry_and_reindexes():
     assert merged[1]["segment_type"] == "ON_SCREEN"
 
 
-def test_minor_overlap_is_trimmed_to_a_clean_separate_entry():
+def test_minor_overlap_is_trimmed_to_a_clean_separate_entry_when_overlap_disabled():
     spoken = [_spoken(1, 10.0, 12.0, "We move at dawn.")]
     # caption starts 0.5s before the dialogue ends and runs well after it
-    merged = merge_timeline(spoken, [_onscreen(11.5, 16.0, "[Tehran, Iran]")], min_gap=0.084)
+    merged = merge_timeline(spoken, [_onscreen(11.5, 16.0, "[Tehran, Iran]")], min_gap=0.084, allow_overlap=False)
     caption = merged[1]
     assert caption["original_text"] == "[Tehran, Iran]"
     assert caption["start_time"] >= 12.0 + 0.08
     assert caption["end_time"] == 16.0
     assert merged[0]["original_text"] == "We move at dawn."
+
+
+def test_overlap_allowed_keeps_full_onscreen_and_speech_durations():
+    spoken = [_spoken(1, 10.0, 12.0, "We move at dawn.")]
+    # Documentaries / chyrons: on-screen title appears while dialogue is being spoken
+    merged = merge_timeline(spoken, [_onscreen(11.5, 16.0, "[Dr. John Smith — Lead Historian]")], min_gap=0.084, allow_overlap=True)
+    assert len(merged) == 2
+    assert merged[0]["original_text"] == "We move at dawn."
+    assert merged[0]["start_time"] == 10.0
+    assert merged[0]["end_time"] == 12.0
+    assert merged[1]["original_text"] == "[Dr. John Smith — Lead Historian]"
+    assert merged[1]["start_time"] == 11.5
+    assert merged[1]["end_time"] == 16.0
 
 
 def test_simultaneous_caption_stays_separate_onscreen_entry():
@@ -459,11 +472,11 @@ def test_e2e_forced_track_becomes_onscreen_segments(tmp_path, monkeypatch):
     srt.write_text("1\n00:00:00,500 --> 00:00:02,000\nOne week later...\n\n"
                    "2\n00:00:05,000 --> 00:00:07,000\nTehran, Iran\n", encoding="utf-8")
     video = tmp_path / f"clip_{uuid.uuid4().hex[:6]}.mkv"
-    subprocess.run(["ffmpeg", "-v", "error", "-y",
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y",
                     "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
                     "-f", "lavfi", "-i", "color=c=black:s=64x64:d=8",
                     "-i", str(srt), "-map", "0", "-map", "1", "-map", "2",
-                    "-c:s", "srt", "-disposition:s:0", "forced", "-shortest", str(video)], check=True)
+                    "-c:s", "srt", "-disposition:s:0", "forced", "-t", "8", str(video)], check=True, stdin=subprocess.DEVNULL)
     monkeypatch.setattr(orch, "TranscribeStage",
                         lambda: TranscribeStage(_FakeWhisper([(3.0, "Copy that, over."), (5.2, "Move out now.")])))
 

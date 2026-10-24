@@ -153,6 +153,12 @@ export const he: Messages = {
       'תופס כותרות, הודעות ושלטים מרכזיים שהמצלמה מתמקדת בהם וחשובים לעלילה.',
     onscreenSensitivityDescBroad:
       'תופס כמעט כל טקסט קריא על המסך, כולל שלטים, תצוגות HUD ומסמכים בקלוז-אפ.',
+    onscreenOverlapTitle: 'הצגה במקביל לחפיפה עם דיבור (למעלה ולמטה)',
+    onscreenOverlapDescription:
+      'מציג כתוביות OCR (שמות דוברים, כותרות ותארים) בחלק העליון של המסך במקביל לכתוביות הדיבור בחלק התחתון לכל אורך הופעתן, ללא קיצור או פגיעה ברצף.',
+    onscreenPositionLabel: 'מיקום על המסך',
+    metricTitle: 'המרה לשיטה המטרית',
+    metricDescription: 'ממיר מיילים, רגל, פאונד, פרנהייט וכו׳ לק״מ, מטרים, ק״ג וצלזיוס.',
     highSpeechSensitivityTitle: 'רגישות דיבור גבוהה (תפיסת לחישות)',
     highSpeechSensitivityDesc:
       'מרכך את סינון השקט כדי לתפוס לחישות, דיבור חלש או משפטים שנבלעים במוזיקת רקע חזקה.',
@@ -258,6 +264,13 @@ export const he: Messages = {
     noMatches: 'אין התאמות',
     showing: 'מוצגות {shown} מתוך {total} כתוביות',
     livePreview: 'תצוגה חיה, ניתן לערוך כשהעיבוד מסתיים',
+    filterByTagLabel: 'סינון לפי תגית',
+    allTags: 'כל הסוגים',
+    anyTag: 'כל בעלי התגיות ({count})',
+    filterByTag: 'סנן לפי {tag}',
+    clearTagFilter: 'נקה סינון תגית',
+    deleteRow: 'מחק שורה #{index}',
+    confirmDeleteRow: 'למחוק את שורה #{index}?',
     onlyProblems: 'רק בעיות ({count})',
     onlyProblemsTitle: 'מהירות קריאה גבוהה מדי, או שהתרגום נכשל',
     autoScroll: 'גלילה אוטומטית עם הווידאו',
@@ -442,6 +455,16 @@ export const he: Messages = {
     frameDetail: 'רזולוציית פריים',
     frameDetailHint: 'טוקנים לפריים: נמוכה 280 · בינונית 560 · גבוהה 1120',
     resolution: { low: 'נמוכה', medium: 'בינונית', high: 'גבוהה' },
+    onscreenPosition: 'מיקום כתוביות OCR / טקסט מסך',
+    onscreenPositionHint:
+      'היכן יוצגו כותרות המסך ושמות הדוברים בנגן הווידאו ובייצוא (תגיות {\\anX} ב-SRT ומיקום ב-WebVTT).',
+    pos: {
+      top_center: 'למעלה במרכז (ברירת מחדל)',
+      middle_right: 'מרכז צד ימין',
+      middle_left: 'מרכז צד שמאל',
+      top_right: 'למעלה בצד ימין',
+      top_left: 'למעלה בצד שמאל',
+    },
     price: '{input} קלט · {output} פלט (כולל חשיבה) למיליון טוקנים',
     priceLong: 'פרומפט מעל 200 אלף טוקנים: {input} / {output}',
     priceChange: 'מחיר מבצע — {input} / {output} למיליון החל מ־{date}',
@@ -524,6 +547,11 @@ export const he: Messages = {
       advancedTitle: 'למשתמשים מתקדמים:',
       advancedText: 'מעדיפים התקנה ידנית או בחירת מודל משלכם? ניתן להוריד את Ollama ישירות מהאתר הרשמי ולהריץ בטרמינל כל מודל נתמך (qwen2.5, gemma או llama):',
       downloadLink: 'הורדת Ollama מהאתר הרשמי (ollama.com)',
+    },
+    metric: {
+      label: 'המרה לשיטה המטרית (יחידות מידה, מרחקים ומשקלים)',
+      description:
+        'ממיר באופן טבעי יחידות אימפריאליות (מיילים, רגל/פיט, אינצ׳ים, יארדים, פאונד, מעלות פרנהייט, גלונים, אקרים) ליחידות מטריות מקובלות (ק״מ, מטרים, ס״מ, ק״ג, צלזיוס, ליטרים, דונם) עם עיגול נוח לקריאה שוטפת.',
     },
     help: {
       title: 'מדריך הפעלה ושאלות נפוצות (Q&A)',

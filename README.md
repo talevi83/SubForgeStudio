@@ -23,11 +23,12 @@
    - Re-segments Whisper's output by sentence: lines Whisper cut mid-sentence are re-joined, dangling one-word fragments are merged, and sentences from different Whisper segments are never glued together (avoids mixing speakers).
    - Long sentences are split at clause boundaries/pauses, max 42 characters per line and 2 lines per subtitle.
    - Timing pass: no overlaps, ≥2-frame gaps, display time extended toward a target reading speed (`TARGET_CPS`), short gaps closed to avoid flicker.
-   - Reading speed (CPS) badges, plus an "Only problems" filter in the editor.
+   - Reading speed (CPS) badges, plus an "Only problems" filter and segment tag filter in the editor.
 
 4. **Context-Aware Gemini Subtitle Translation (Batch 60 + Dynamic Glossary Pruning):**
    - Default batch size of 60 lines (`GEMINI_BATCH_SIZE=60`) halves translation request roundtrips and cut repeated prompt/thinking token overhead by 50%.
    - One glossary pass over the whole transcript (characters, gender, terminology) feeds translation, with per-batch dynamic glossary pruning (main cast + characters and terms appearing in the active window) so prompts stay compact without mutating the saved glossary.
+   - **Metric System Conversion Toggle:** Optional setting to automatically convert imperial measurements (miles, feet, inches, lbs, Fahrenheit, gallons, acres) into natural, idiomatic metric equivalents (km, m, kg, Celsius, liters, dunams) with natural rounding while preserving figurative idioms.
    - Missing lines are retried individually; anything that still fails is **flagged**, never silently left in English. "Retranslate failed" / "Retranslate all" (or a different target language) without re-transcribing.
    - Subtitles are saved as soon as they're refined and after every translated batch — nothing is lost if translation fails.
 
@@ -39,17 +40,20 @@
    - Whisper runs with a permissive VAD, relaxed `no_speech`/`log_prob` thresholds and a tactical vocabulary prompt (`initial_prompt` + `hotwords`).
    - Radio-procedure lines ("Copy that, over.", "Do you copy?", "…come in.") are tagged `COMMS` and translated with authentic IDF radio phrasing ("רות", "עבור").
 
-7. **📺 On-Screen Text & GPU-Accelerated Frame Sampling:**
+7. **📺 On-Screen Text, GPU Frame Sampling & Custom Positioning:**
    - Uses an embedded forced/"signs" text subtitle track when the file has one.
    - Otherwise samples video frames in the background while Whisper transcribes. Sampling is GPU-accelerated (`-hwaccel auto` via NVDEC/D3D11VA) and demuxes only keyframes (`-discard nokey`) on full episodes, completing 36-minute 1440p 60fps AV1/HEVC scans in ~29 seconds instead of 20+ minutes on CPU.
    - Frames are prioritised at speech gaps and scene cuts, and asked Gemini Vision for narrative text only ("One week later...", "Damascus, Syria", HUD headers, plot-critical signs — not logos, credits or burned-in dialogue).
    - Repeated detections are merged into one `[bracketed]` `ON_SCREEN` subtitle and woven into the timeline. Lone short words (HUD/radio callsigns like "EAGLE") are dropped, and signs returning within 3 minutes are not repeated.
+   - **Speech Overlap & Reading Time:** On-screen titles (chyrons, speaker roles/credentials) can appear concurrently with dialogue lines without clipping or delaying subsequent speech subtitles (`allow_overlap=True`). A minimum comfortable reading duration is computed based on character count.
+   - **Screen Position Selector:** Choose where on-screen translations appear (Top Center `\an8`, Center Right `\an6`, Center Left `\an4`, Top Right `\an9`, Top Left `\an7`) in Settings and Ingest, serialized with SubStation Alpha positioning tags in SRT and WebVTT cue settings.
    - **Speech in other languages** (e.g. Russian in an English episode): passages in another language are detected, sampled from the bottom third with GPU acceleration, and read from burned-in subtitles (or re-transcribed by Whisper).
 
 8. **Interactive Studio Workspace:**
    - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), seek bar and fullscreen that keeps the subtitle overlay.
    - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `N` add a line at the playhead, `F` fullscreen.
-   - **Add a line by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in the same format the table shows, `HH:MM:SS,mmm` (e.g. `00:12:34,500`; short forms like `12:34,5` work too), or taken from the playhead with one click.
+   - **Add & Delete lines by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in `HH:MM:SS,mmm` (or captured from the playhead). A delete trash button on each row allows removing unwanted lines with automatic renumbering of subsequent cues.
+   - **Filter by Tag & Problems:** Dedicated tag filter dropdown in the toolbar allows filtering to On-Screen (📺), Comms (📻), Foreign (🌐), or any tagged subtitle with real-time counts, plus instant filtering by clicking on row badges directly.
    - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
@@ -181,7 +185,7 @@ Interactive docs are at `http://localhost:8000/docs` while the server runs.
 | System | `GET /api/system/info` (hardware, models), `GET /api/system/log` (server log) |
 | Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range), `POST /api/media/parse-subtitles` (read a subtitle file to sync) |
 | Jobs | `POST/GET /api/jobs` (with `sync_cues` = a sync job), `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
-| Editing | `POST /api/jobs/{id}/segments` (add a line), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
+| Editing | `POST /api/jobs/{id}/segments` (add a line), `DELETE /api/jobs/{id}/segments/{segment_id}` (delete a line), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
 | Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
 | Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
 | Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |

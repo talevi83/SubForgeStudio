@@ -227,6 +227,8 @@ class PipelineOrchestrator:
                 use_embedded_subtitles=getattr(job, "use_embedded_subtitles", True),
                 detect_onscreen_text=job.detect_onscreen_text,
                 onscreen_sensitivity=getattr(job, "onscreen_sensitivity", 2),
+                allow_onscreen_overlap=getattr(job, "allow_onscreen_overlap", True),
+                convert_to_metric=getattr(job, "convert_to_metric", False),
                 enable_translation=job.enable_translation or self.mode == "translate",
                 target_language=job.target_language,
                 gemini_model=job.gemini_model,

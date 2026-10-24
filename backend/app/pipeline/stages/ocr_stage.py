@@ -600,14 +600,20 @@ def merge_frame_detections(
 
     segments = []
     shown: List[Dict[str, Any]] = []
-    for g in groups:
+    for idx, g in enumerate(groups):
         if repeat_window and any(
             g["start"] - p["start"] <= repeat_window and _same_text(p["text"], g["text"]) for p in shown
         ):
             logger.info(f"On-screen text at {g['start']:.1f}s already shown, not repeated: {g['text']!r}")
             continue
         shown.append(g)
-        end = max(g["last"] + buffer, g["start"] + min_duration)
+        clean_len = len(re.sub(r"[\s\[\]]+", "", g["text"]))
+        reading_time = max(min_duration, clean_len / 15.0) if segment_type == SegmentType.ON_SCREEN.value else min_duration
+        end = max(g["last"] + buffer, g["start"] + reading_time)
+        if segment_type == SegmentType.ON_SCREEN.value and idx + 1 < len(groups):
+            nxt_start = groups[idx + 1]["start"]
+            if nxt_start > g["start"] and end > nxt_start:
+                end = max(g["start"] + 0.5, nxt_start - 0.084)
         seg = make_onscreen_segment(g["start"], end, g["text"], bracket=bracket)
         seg["segment_type"] = segment_type
         if seg["original_text"]:

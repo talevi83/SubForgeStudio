@@ -112,3 +112,14 @@ async def test_cut_off_translations_are_asked_again(monkeypatch):
     await t.translate_segments(segs, "English", "Hebrew")
     assert segs[1].translated_text == "T2 full translation" and not segs[1].translation_failed
     assert gp._looks_truncated("Yes, sir.", "כן") is False  # short sources are left alone
+
+
+def test_metric_conversion_prompt_injection():
+    prompt_without_metric = gp.build_subtitle_system_prompt("English", "Hebrew", convert_to_metric=False)
+    assert "Metric System Conversion" not in prompt_without_metric
+
+    prompt_with_metric = gp.build_subtitle_system_prompt("English", "Hebrew", convert_to_metric=True)
+    assert "Metric System Conversion" in prompt_with_metric
+    assert "miles" in prompt_with_metric and "Fahrenheit" in prompt_with_metric
+
+

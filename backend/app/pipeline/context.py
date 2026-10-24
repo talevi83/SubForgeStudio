@@ -46,6 +46,8 @@ class PipelineContext:
     use_embedded_subtitles: bool = True
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = 2
+    allow_onscreen_overlap: bool = True
+    convert_to_metric: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"

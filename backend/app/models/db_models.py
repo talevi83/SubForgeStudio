@@ -81,6 +81,12 @@ class Job(SQLModel, table=True):
     detect_onscreen_text: bool = Field(default=False)
     # On-screen text sensitivity: 1=Strict, 2=Balanced, 3=Broad
     onscreen_sensitivity: int = Field(default=2)
+    # Allow on-screen OCR text to overlap dialogue subtitles (top & bottom of the screen simultaneously)
+    allow_onscreen_overlap: bool = Field(default=True)
+    # Screen position for on-screen OCR text ("top_center", "middle_right", "middle_left", "top_right", "top_left")
+    onscreen_position: str = Field(default="top_center")
+    # Convert non-metric units to metric system
+    convert_to_metric: bool = Field(default=False)
     enable_translation: bool = Field(default=False)
     target_language: str = Field(default="Hebrew")
     gemini_model: str = Field(default="gemini-3.8-flash")
