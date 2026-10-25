@@ -177,12 +177,18 @@ export interface HardwareInfo {
 
 export interface SystemInfo {
   is_gemini_configured: boolean;
+  masked_api_key?: string | null;
   gemini_model: string;
   gemini_models: string[];
   whisper_default_model: string;
   whisper_models: string[];
   max_cps_warning: number;
   hardware: HardwareInfo;
+}
+
+export interface ApiKeyStatus {
+  is_gemini_configured: boolean;
+  masked_api_key?: string | null;
 }
 
 /** One line of a subtitle file the user wants synced (as parsed by the server). */

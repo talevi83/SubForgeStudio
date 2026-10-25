@@ -12,6 +12,7 @@ import type {
 } from '../../types';
 import { api } from '../../services/api';
 import { StorageSection } from './StorageSection';
+import { ApiKeySection } from './ApiKeySection';
 import {
   ArrowLeft, Brain, Coins, Languages, Moon, Palette, Sun, Save, Loader2, Check, ExternalLink, PlugZap, CheckCircle2, XCircle,
   Hourglass, ScrollText, Stethoscope, Download, Cpu, Terminal,
@@ -416,6 +417,9 @@ export const SettingsScreen: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Gemini API Key (foldable / collapsible above AI models) */}
+      <ApiKeySection />
 
       {/* AI models */}
       <section className={card}>

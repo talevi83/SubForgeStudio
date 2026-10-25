@@ -30,6 +30,13 @@ find_python() {
     return 1
 }
 
+check_node() {
+    if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        return 1
+    fi
+    node -e "const [maj, min] = process.versions.node.split('.').map(Number); process.exit((maj > 20 || (maj === 20 && min >= 19)) ? 0 : 1)" 2>/dev/null
+}
+
 install_system_packages() {
     if [[ "$OS" == "Darwin" ]]; then
         if ! command -v brew >/dev/null 2>&1; then
@@ -43,7 +50,12 @@ install_system_packages() {
         if command -v apt-get >/dev/null 2>&1; then
             echo "    Installing missing tools via apt..."
             sudo apt-get update
-            sudo apt-get install -y python3 python3-venv python3-pip ffmpeg nodejs npm curl
+            sudo apt-get install -y python3 python3-venv python3-pip ffmpeg curl ca-certificates gnupg
+            if ! check_node; then
+                echo "    Setting up NodeSource repository for Node.js 22 LTS..."
+                curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+                sudo apt-get install -y nodejs
+            fi
         elif command -v dnf >/dev/null 2>&1; then
             echo "    Installing missing tools via dnf..."
             sudo dnf install -y python3 python3-pip ffmpeg nodejs npm curl
@@ -54,7 +66,7 @@ install_system_packages() {
             echo "    Installing missing tools via zypper..."
             sudo zypper install -y python3 python3-pip ffmpeg nodejs npm curl
         else
-            echo "[!] Unsupported package manager. Please install Python 3.11+, Node.js 20+, and FFmpeg manually."
+            echo "[!] Unsupported package manager. Please install Python 3.11+, Node.js 20.19+/22+, and FFmpeg manually."
             return 1
         fi
     fi
@@ -66,8 +78,12 @@ if [[ -z "$PYTHON_CMD" ]] && ! command -v uv >/dev/null 2>&1; then
     echo "    - Python 3.11+ not found."
     NEED_SYS_INSTALL=1
 fi
-if ! command -v npm >/dev/null 2>&1; then
-    echo "    - Node.js / npm not found."
+if ! check_node; then
+    if command -v node >/dev/null 2>&1; then
+        echo "    - Node.js $(node -v) is too old (Vite 8 requires Node.js 20.19+ or 22+)."
+    else
+        echo "    - Node.js / npm not found."
+    fi
     NEED_SYS_INSTALL=1
 fi
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
@@ -79,7 +95,7 @@ if [[ "$NEED_SYS_INSTALL" -eq 1 ]]; then
     if [[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]]; then
         REPLY="y"
     else
-        read -r -p "    Attempt to install missing system packages automatically? [Y/n] " REPLY || REPLY="n"
+        read -r -p "    Attempt to install/upgrade missing system packages automatically? [Y/n] " REPLY || REPLY="n"
     fi
     if [[ -z "$REPLY" || "$REPLY" =~ ^[Yy]$ ]]; then
         install_system_packages || true
@@ -91,8 +107,9 @@ if [[ -z "$PYTHON_CMD" ]] && ! command -v uv >/dev/null 2>&1; then
     echo "[ERROR] Python 3.11+ (or uv) is required. Please install Python 3.11+ and re-run ./install.sh"
     exit 1
 fi
-if ! command -v npm >/dev/null 2>&1; then
-    echo "[ERROR] Node.js (v20.19+ or v22.12+) and npm are required. Please install Node.js and re-run ./install.sh"
+if ! check_node; then
+    echo "[ERROR] Node.js (v20.19+ or v22+) and npm are required (found: $(node -v 2>/dev/null || echo 'none'))."
+    echo "        Please upgrade Node.js (e.g. via NodeSource or nvm) and re-run ./install.sh"
     exit 1
 fi
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then

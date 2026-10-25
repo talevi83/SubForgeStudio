@@ -67,6 +67,11 @@ fi
 
 if [[ "$NEED_BUILD" -eq 1 ]]; then
     echo "[3/4] Building frontend studio..."
+    if ! command -v node >/dev/null 2>&1 || ! node -e "const [maj, min] = process.versions.node.split('.').map(Number); process.exit((maj > 20 || (maj === 20 && min >= 19)) ? 0 : 1)" 2>/dev/null; then
+        echo "[ERROR] Node.js 20.19+ or 22+ is required to build the frontend (found: $(node -v 2>/dev/null || echo 'none'))."
+        echo "        Run ./install.sh to automatically upgrade Node.js to v22 LTS."
+        exit 1
+    fi
     pushd frontend >/dev/null
     if [[ ! -d "node_modules" ]]; then
         npm install

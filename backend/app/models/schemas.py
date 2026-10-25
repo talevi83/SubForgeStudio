@@ -277,6 +277,7 @@ class WebSocketEventPayload(BaseModel):
 
 class SystemInfoResponse(BaseModel):
     is_gemini_configured: bool
+    masked_api_key: Optional[str] = None
     gemini_model: str
     gemini_models: List[str] = []
     whisper_default_model: str

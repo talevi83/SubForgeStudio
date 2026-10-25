@@ -45,12 +45,19 @@ async def _gemini_models() -> List[str]:
     return list(dict.fromkeys(configured + (_gemini_models_cache or [])))
 
 
+def reset_gemini_models_cache() -> None:
+    global _gemini_models_cache, _gemini_models_cache_at
+    _gemini_models_cache = None
+    _gemini_models_cache_at = 0.0
+
+
 @router.get("/info", response_model=SystemInfoResponse)
 async def get_system_info():
     """Retrieve server hardware capabilities and configuration status."""
     hw = await asyncio.to_thread(get_hardware_info)
     return SystemInfoResponse(
         is_gemini_configured=settings.is_gemini_configured,
+        masked_api_key=settings.masked_api_key,
         gemini_model=settings.gemini_model,
         gemini_models=await _gemini_models(),
         whisper_default_model=settings.whisper_default_model,

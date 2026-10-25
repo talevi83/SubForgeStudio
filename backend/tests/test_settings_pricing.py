@@ -302,3 +302,31 @@ def test_glossary_model_failure_is_reported_but_translation_continues(client: Te
         time.sleep(0.05)
     assert job["segments"][0]["translated_text"] == "בסדר"
     assert "Glossary pass skipped" in job["warning_message"] and "gemini-2.5-flash-lite" in job["warning_message"]
+
+
+def test_api_key_get_and_put_updates_settings_and_env(client: TestClient, tmp_path, monkeypatch):
+    import app.core.config as cfg
+
+    fake_env = tmp_path / ".env"
+    fake_env.write_text("GEMINI_API_KEY=your_gemini_api_key_here\nPORT=8000\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "env_file_path", lambda: fake_env)
+    monkeypatch.setattr(settings, "gemini_api_key", "your_gemini_api_key_here")
+
+    status = client.get("/api/settings/api-key").json()
+    assert status["is_gemini_configured"] is False
+    assert status["masked_api_key"] is None
+
+    res = client.put("/api/settings/api-key", json={"api_key": "AIzaSyTestKey1234567890"}).json()
+    assert res["is_gemini_configured"] is True
+    assert res["masked_api_key"] == "AIza••••••••7890"
+    assert "GEMINI_API_KEY=AIzaSyTestKey1234567890" in fake_env.read_text(encoding="utf-8")
+    assert "PORT=8000" in fake_env.read_text(encoding="utf-8")
+
+    sys_info = client.get("/api/system/info").json()
+    assert sys_info["is_gemini_configured"] is True
+    assert sys_info["masked_api_key"] == "AIza••••••••7890"
+
+    # Clearing the key
+    cleared = client.put("/api/settings/api-key", json={"api_key": ""}).json()
+    assert cleared["is_gemini_configured"] is False
+    assert cleared["masked_api_key"] is None

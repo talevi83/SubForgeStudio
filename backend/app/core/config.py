@@ -91,6 +91,55 @@ class Settings(BaseSettings):
             and self.gemini_api_key != "your_gemini_api_key_here"
         )
 
+    @property
+    def masked_api_key(self) -> Optional[str]:
+        """Return a masked preview of the configured API key (e.g. 'AIza••••abcd'), or None."""
+        if not self.is_gemini_configured or not self.gemini_api_key:
+            return None
+        k = self.gemini_api_key.strip()
+        if len(k) <= 8:
+            return "•" * len(k)
+        return f"{k[:4]}••••••••{k[-4:]}"
+
+
+def env_file_path() -> Path:
+    """Resolve the active .env file path (prefers cwd/.env if present, else backend/.env)."""
+    cwd_env = Path(".env")
+    if cwd_env.exists():
+        return cwd_env.resolve()
+    backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    if backend_env.exists():
+        return backend_env
+    return cwd_env.resolve()
+
+
+def save_gemini_api_key(api_key: str) -> None:
+    """Persist GEMINI_API_KEY to the .env file and update the in-memory settings."""
+    import re
+
+    clean = (api_key or "").strip()
+    settings.gemini_api_key = clean or None
+
+    target = env_file_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    line = f"GEMINI_API_KEY={clean}"
+    if target.exists():
+        content = target.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^\s*GEMINI_API_KEY\s*=", content, flags=re.MULTILINE):
+            updated = re.sub(
+                r"^\s*GEMINI_API_KEY\s*=.*$",
+                lambda _: line,
+                content,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        else:
+            sep = "" if content.endswith("\n") or not content else "\n"
+            updated = f"{content}{sep}{line}\n"
+        target.write_text(updated, encoding="utf-8")
+    else:
+        target.write_text(f"{line}\n", encoding="utf-8")
+
 
 settings = Settings()
 settings.storage_dir.mkdir(parents=True, exist_ok=True)

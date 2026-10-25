@@ -151,6 +151,36 @@ class OllamaSetupRequest(BaseModel):
     model: Optional[str] = None
 
 
+class ApiKeyRequest(BaseModel):
+    api_key: str
+
+
+class ApiKeyResponse(BaseModel):
+    is_gemini_configured: bool
+    masked_api_key: Optional[str] = None
+
+
+@router.get("/api-key", response_model=ApiKeyResponse)
+def get_api_key_status():
+    return ApiKeyResponse(
+        is_gemini_configured=settings.is_gemini_configured,
+        masked_api_key=settings.masked_api_key,
+    )
+
+
+@router.put("/api-key", response_model=ApiKeyResponse)
+def update_api_key(req: ApiKeyRequest):
+    from app.api.routes_system import reset_gemini_models_cache
+    from app.core.config import save_gemini_api_key
+
+    save_gemini_api_key(req.api_key)
+    reset_gemini_models_cache()
+    return ApiKeyResponse(
+        is_gemini_configured=settings.is_gemini_configured,
+        masked_api_key=settings.masked_api_key,
+    )
+
+
 @router.get("/ollama/status")
 async def ollama_status():
     from app.core.ollama_setup import get_ollama_status

@@ -16,6 +16,7 @@ import { SubtitleTable } from './components/studio/SubtitleTable';
 import { ExportToolbar } from './components/studio/ExportToolbar';
 import { SettingsScreen } from './components/settings/SettingsScreen';
 import { HelpSection } from './components/settings/HelpSection';
+import { FirstRunApiKeyModal } from './components/settings/ApiKeySection';
 
 const ErrorToast: React.FC = () => {
   const error = useJobStore((s) => s.error);
@@ -52,6 +53,7 @@ export const App: React.FC = () => {
   return (
     <div className="flex h-screen w-screen bg-app text-zinc-100 overflow-hidden font-sans">
       <ErrorToast />
+      <FirstRunApiKeyModal />
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">

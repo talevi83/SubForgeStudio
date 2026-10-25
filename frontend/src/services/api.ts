@@ -186,6 +186,14 @@ export const api = {
     return request(`${API_BASE}/settings`, json('PUT', settings), 'Could not save settings');
   },
 
+  getApiKeyStatus(): Promise<import('../types').ApiKeyStatus> {
+    return request(`${API_BASE}/settings/api-key`, undefined, 'Could not check API key status');
+  },
+
+  saveApiKey(apiKey: string): Promise<import('../types').ApiKeyStatus> {
+    return request(`${API_BASE}/settings/api-key`, json('PUT', { api_key: apiKey }), 'Could not save API key');
+  },
+
   estimateCost(params: {
     duration_seconds: number;
     enable_translation: boolean;
