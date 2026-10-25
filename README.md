@@ -126,7 +126,9 @@ Pipeline per job: **Probe → Audio → Transcribe → On-screen text** *(option
 SubsForge Studio/
 ├── SPEC.md                     # Architecture, tech stack and design decisions
 ├── README.md                   # Setup and usage guide
-├── run.bat                     # One-click Windows launcher (venv, .env, frontend build, server)
+├── install.bat / run.bat       # One-click Windows installer & launcher
+├── install.sh / run.sh         # One-click Linux & macOS installer & launcher
+├── install.command / run.command # Double-clickable macOS Finder wrappers
 ├── build_exe.bat               # Builds the standalone desktop app (dist\SubForge Studio\)
 ├── packaging/                  # Tray launcher, PyInstaller spec, icon, FFmpeg download script
 ├── backend/
@@ -271,8 +273,19 @@ npm run build
 
 ## 🏃 Running the Application
 
-### Option A: One-click (Windows)
-Double-click `run.bat`. It creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the old behavior: a console server and the studio in your browser.
+### Option A1: One-click (Windows)
+Run `install.bat` (optional first-time setup) or simply double-click `run.bat`. It creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the old behavior: a console server and the studio in your browser.
+
+### Option A2: One-click (Linux & macOS)
+Run the installer once, then start the studio with `./run.sh` (or on macOS, double-click `install.command` and `run.command` directly in Finder):
+```bash
+# First-time setup (checks/installs prerequisites, creates backend/.venv, .env, and builds frontend):
+./install.sh
+
+# Start SubForge Studio (auto-rebuilds frontend if modified and opens http://localhost:8000):
+./run.sh
+```
+Pass `./install.sh --desktop` and `./run.sh --window` if you want the native `pywebview` desktop window instead of opening in the browser. Pass `./run.sh --no-browser` to start the server without opening a browser tab.
 
 ### Option B: Standalone Production Mode (Single Command)
 Run the backend server, which automatically serves the compiled frontend on port 8000:
