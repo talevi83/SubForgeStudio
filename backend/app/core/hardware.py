@@ -7,35 +7,53 @@ from typing import Dict, Any, Optional
 
 
 def setup_cuda_dll_paths() -> None:
-    """Preload NVIDIA CUDA/cuBLAS/cuDNN DLLs on Windows into process space."""
-    if sys.platform != "win32":
+    """Preload NVIDIA CUDA/cuBLAS/cuDNN shared libraries on Windows and Linux into process space."""
+    if sys.platform not in ("win32", "linux"):
         return
 
     import ctypes
-    candidates = [Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"]
-    if getattr(sys, "frozen", False):  # packaged exe: the DLLs sit in <bundle>/nvidia/*/bin
-        candidates.insert(0, Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "nvidia")
-    nvidia_dir = next((c for c in candidates if c.exists()), None)
-    if nvidia_dir is None:
-        return
+    if sys.platform == "win32":
+        candidates = [Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"]
+        if getattr(sys, "frozen", False):  # packaged exe: the DLLs sit in <bundle>/nvidia/*/bin
+            candidates.insert(0, Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "nvidia")
+        nvidia_dir = next((c for c in candidates if c.exists()), None)
+        if nvidia_dir is None:
+            return
 
-    bin_dirs = list(nvidia_dir.glob("*/bin"))
-    for b in bin_dirs:
-        try:
-            os.add_dll_directory(str(b))
-        except Exception:
-            pass
-
-    if bin_dirs:
-        os.environ["PATH"] = ";".join(str(b) for b in bin_dirs) + ";" + os.environ.get("PATH", "")
-
-    # Preload cuBLAS and cuDNN DLLs into memory
-    for b in bin_dirs:
-        for dll_file in b.glob("*.dll"):
+        bin_dirs = list(nvidia_dir.glob("*/bin"))
+        for b in bin_dirs:
             try:
-                ctypes.CDLL(str(dll_file))
+                os.add_dll_directory(str(b))
             except Exception:
                 pass
+
+        if bin_dirs:
+            os.environ["PATH"] = ";".join(str(b) for b in bin_dirs) + ";" + os.environ.get("PATH", "")
+
+        # Preload cuBLAS and cuDNN DLLs into memory
+        for b in bin_dirs:
+            for dll_file in b.glob("*.dll"):
+                try:
+                    ctypes.CDLL(str(dll_file))
+                except Exception:
+                    pass
+    else:
+        candidates = list((Path(sys.prefix) / "lib").glob("python*/site-packages/nvidia"))
+        nvidia_dir = next((c for c in candidates if c.exists()), None)
+        if nvidia_dir is None:
+            return
+        lib_dirs = list(nvidia_dir.glob("*/lib"))
+        if lib_dirs:
+            ld_path = ":".join(str(d) for d in lib_dirs)
+            existing = os.environ.get("LD_LIBRARY_PATH", "")
+            os.environ["LD_LIBRARY_PATH"] = f"{ld_path}:{existing}" if existing else ld_path
+        rtld_global = getattr(ctypes, "RTLD_GLOBAL", os.RTLD_GLOBAL if hasattr(os, "RTLD_GLOBAL") else 0)
+        for d in lib_dirs:
+            for so_file in sorted(d.glob("lib*.so*")):
+                try:
+                    ctypes.CDLL(str(so_file), mode=rtld_global)
+                except Exception:
+                    pass
 
 
 # Execute DLL setup immediately

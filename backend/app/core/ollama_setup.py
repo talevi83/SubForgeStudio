@@ -29,7 +29,7 @@ _setup_task: Optional[asyncio.Task] = None
 
 
 def find_ollama_bin() -> Optional[str]:
-    """Locate the `ollama` executable on PATH or in standard Windows install directories."""
+    """Locate the `ollama` executable on PATH or in standard OS install directories."""
     found = shutil.which("ollama")
     if found:
         return found
@@ -38,9 +38,20 @@ def find_ollama_bin() -> Optional[str]:
             Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
             Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe",
         ]
-        for candidate in candidates:
-            if candidate.is_file():
-                return str(candidate)
+    elif sys.platform == "darwin":
+        candidates = [
+            Path("/Applications/Ollama.app/Contents/Resources/ollama"),
+            Path("/opt/homebrew/bin/ollama"),
+            Path("/usr/local/bin/ollama"),
+        ]
+    else:
+        candidates = [
+            Path("/usr/local/bin/ollama"),
+            Path("/usr/bin/ollama"),
+        ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
     return None
 
 
