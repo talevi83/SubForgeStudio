@@ -477,7 +477,6 @@ def run_window(server: ServerThread, url: str, home: Path, env_file: Path) -> No
             state["leaving"] = True
             window.destroy()
 
-    icon.visible = True
     icon.run_detached()  # Windows: the tray gets its own thread and message loop
     SHOW_WINDOW = show_window
     try:

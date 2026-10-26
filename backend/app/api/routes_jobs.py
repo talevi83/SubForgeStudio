@@ -14,6 +14,8 @@ from app.core.user_settings import load_settings
 from app.models.db_models import Job, JobStatus, SubtitleSegmentRecord
 from app.models.schemas import (
     AudioStreamInfo,
+    BulkDeleteJobsRequest,
+    BulkDeleteJobsResponse,
     BulkSegmentUpdate,
     GlossaryUpdate,
     JobCreate,
@@ -428,11 +430,12 @@ def quality_check(job_id: str, session: Session = Depends(get_session)):
     return [QAIssueSchema(segment_id=i.segment_id, index=i.index, kind=i.kind, message=i.message) for i in issues]
 
 
-@router.delete("/{job_id}")
-def delete_job(job_id: str, session: Session = Depends(get_session)):
-    """Delete a job, its cached audio and (for browser uploads) the uploaded copy."""
-    job = _get_job_or_404(session, job_id)
+def _delete_single_job(session: Session, job: Job) -> Tuple[str, bool]:
+    """Delete a job, its cached audio/frames/logs, and (for browser uploads) the uploaded copy."""
+    import shutil
+    from app.core.job_logging import delete_job_log
 
+    job_id = job.id
     PipelineOrchestrator.cancel_job(job_id)
     video_path, is_upload = job.video_path, job.is_upload
 
@@ -445,17 +448,55 @@ def delete_job(job_id: str, session: Session = Depends(get_session)):
     session.delete(job)
     session.commit()
 
-    from app.core.job_logging import delete_job_log
-
     delete_job_log(job_id)
     try:
         (settings.storage_dir / "regions" / f"{job_id}.json").unlink(missing_ok=True)
+    except OSError:
+        pass
+    try:
+        shutil.rmtree(settings.storage_dir / "frames" / job_id, ignore_errors=True)
     except OSError:
         pass
 
     upload_deleted = False
     if is_upload or is_in_uploads(video_path):
         upload_deleted = delete_upload_if_unused(video_path)
+    return job_id, upload_deleted
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteJobsResponse)
+def bulk_delete_jobs(req: BulkDeleteJobsRequest, session: Session = Depends(get_session)):
+    """Delete multiple jobs by ID, or all existing jobs when delete_all=True."""
+    if req.delete_all:
+        jobs = session.exec(select(Job)).all()
+    elif req.job_ids:
+        jobs = session.exec(select(Job).where(Job.id.in_(req.job_ids))).all()
+    else:
+        return BulkDeleteJobsResponse(deleted_count=0, deleted_ids=[])
+
+    deleted_ids: List[str] = []
+    for job in jobs:
+        jid, _ = _delete_single_job(session, job)
+        deleted_ids.append(jid)
+    return BulkDeleteJobsResponse(deleted_count=len(deleted_ids), deleted_ids=deleted_ids)
+
+
+@router.delete("")
+def delete_all_jobs(session: Session = Depends(get_session)):
+    """Delete all existing jobs and their associated cache/upload files."""
+    jobs = session.exec(select(Job)).all()
+    deleted_ids: List[str] = []
+    for job in jobs:
+        jid, _ = _delete_single_job(session, job)
+        deleted_ids.append(jid)
+    return {"deleted_count": len(deleted_ids), "deleted_ids": deleted_ids}
+
+
+@router.delete("/{job_id}")
+def delete_job(job_id: str, session: Session = Depends(get_session)):
+    """Delete a job, its cached audio and (for browser uploads) the uploaded copy."""
+    job = _get_job_or_404(session, job_id)
+    _, upload_deleted = _delete_single_job(session, job)
     return {"deleted": True, "job_id": job_id, "upload_deleted": upload_deleted}
 
 

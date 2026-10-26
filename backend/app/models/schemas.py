@@ -195,6 +195,16 @@ class SegmentsChangeResponse(BaseModel):
     segments: List["SubtitleSegmentSchema"] = []
 
 
+class BulkDeleteJobsRequest(BaseModel):
+    job_ids: Optional[List[str]] = Field(default=None, description="Job IDs to delete; None or empty with delete_all=True deletes all jobs")
+    delete_all: bool = False
+
+
+class BulkDeleteJobsResponse(BaseModel):
+    deleted_count: int
+    deleted_ids: List[str]
+
+
 class DetectSpeakersRequest(BaseModel):
     segment_ids: List[int]
     gemini_model: Optional[str] = None

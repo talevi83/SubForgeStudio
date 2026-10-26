@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useJobStore } from '../../store/useJobStore';
 import { useUiStore } from '../../store/useUiStore';
 import { useT, formatUsd } from '../../i18n';
 import { isActiveStatus } from '../../types';
-import { Film, PlusCircle, Cpu, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, Settings, HelpCircle } from 'lucide-react';
+import { Film, PlusCircle, Cpu, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, Settings, HelpCircle, X } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const jobs = useJobStore((s) => s.jobs);
@@ -14,10 +14,87 @@ export const Sidebar: React.FC = () => {
   const selectJob = useJobStore((s) => s.selectJob);
   const clearActiveJob = useJobStore((s) => s.clearActiveJob);
   const deleteJob = useJobStore((s) => s.deleteJob);
+  const deleteJobs = useJobStore((s) => s.deleteJobs);
+  const deleteAllJobs = useJobStore((s) => s.deleteAllJobs);
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
   const language = useUiStore((s) => s.language);
   const t = useT();
+
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
+  const [lastSelectedJobId, setLastSelectedJobId] = useState<string | null>(null);
+  const [deletingBulk, setDeletingBulk] = useState(false);
+
+  // Keep selectedJobIds pruned to jobs that still exist
+  useEffect(() => {
+    setSelectedJobIds((prev) => {
+      if (prev.size === 0) return prev;
+      const existing = new Set(jobs.map((j) => j.id));
+      const next = new Set([...prev].filter((id) => existing.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [jobs]);
+
+  const toggleSelectJob = (jobId: string, shiftKey: boolean) => {
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedJobId) {
+        const a = jobs.findIndex((j) => j.id === lastSelectedJobId);
+        const b = jobs.findIndex((j) => j.id === jobId);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i++) next.add(jobs[i].id);
+          return next;
+        }
+      }
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+    setLastSelectedJobId(jobId);
+  };
+
+  const allSelected = jobs.length > 0 && selectedJobIds.size === jobs.length;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedJobIds(new Set());
+      setLastSelectedJobId(null);
+    } else {
+      setSelectedJobIds(new Set(jobs.map((j) => j.id)));
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (jobs.length === 0 || deletingBulk) return;
+    const anyUpload = jobs.some((j) => j.is_upload);
+    const extra = anyUpload ? `\n\n${t('sidebar.confirmDeleteUpload')}` : '';
+    if (!confirm(`${t('sidebar.confirmClearAll', { count: jobs.length })}${extra}`)) return;
+    setDeletingBulk(true);
+    try {
+      await deleteAllJobs();
+      setSelectedJobIds(new Set());
+      setLastSelectedJobId(null);
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const ids = [...selectedJobIds];
+    if (ids.length === 0 || deletingBulk) return;
+    const anyUpload = jobs.some((j) => selectedJobIds.has(j.id) && j.is_upload);
+    const extra = anyUpload ? `\n\n${t('sidebar.confirmDeleteUpload')}` : '';
+    if (!confirm(`${t('sidebar.confirmDeleteSelected', { count: ids.length })}${extra}`)) return;
+    setDeletingBulk(true);
+    try {
+      await deleteJobs(ids);
+      setSelectedJobIds(new Set());
+      setLastSelectedJobId(null);
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
 
   useEffect(() => {
     fetchJobs();
@@ -68,16 +145,79 @@ export const Sidebar: React.FC = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-        <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-semibold tracking-wider text-zinc-400 uppercase">
-          <span>{t('sidebar.recent')}</span>
-          <span className="text-[10px] bg-zinc-800 px-1.5 rounded text-zinc-400">{jobs.length}</span>
+        <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-semibold tracking-wider text-zinc-400 uppercase gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {jobs.length > 0 && (
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                title={allSelected ? t('sidebar.deselectAll') : t('sidebar.selectAll')}
+                aria-label={allSelected ? t('sidebar.deselectAll') : t('sidebar.selectAll')}
+                data-testid="sidebar-select-all"
+                className="w-3.5 h-3.5 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer flex-shrink-0"
+              />
+            )}
+            <span className="truncate">{t('sidebar.recent')}</span>
+            <span className="text-[10px] bg-zinc-800 px-1.5 rounded text-zinc-400">{jobs.length}</span>
+          </div>
+          {jobs.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              disabled={deletingBulk}
+              title={t('sidebar.clearAllTitle')}
+              data-testid="sidebar-clear-all-btn"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium normal-case tracking-normal text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {deletingBulk && selectedJobIds.size === 0 ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Trash2 className="w-3 h-3" />
+              )}
+              <span>{t('sidebar.clearAll')}</span>
+            </button>
+          )}
         </div>
+
+        {selectedJobIds.size > 0 && (
+          <div
+            className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-xs"
+            data-testid="sidebar-bulk-bar"
+          >
+            <span className="text-[11px] font-medium text-rose-200 truncate">
+              {t('sidebar.selectedCount', { count: selectedJobIds.size })}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleDeleteSelected}
+                disabled={deletingBulk}
+                data-testid="sidebar-delete-selected-btn"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {deletingBulk ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                <span>{t('sidebar.deleteSelected', { count: selectedJobIds.size })}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedJobIds(new Set());
+                  setLastSelectedJobId(null);
+                }}
+                title={t('sidebar.deselectAll')}
+                data-testid="sidebar-clear-selection-btn"
+                className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {jobs.length === 0 ? (
           <div className="px-4 py-8 text-center text-zinc-400 text-xs">{t('sidebar.empty')}</div>
         ) : (
           jobs.map((job) => {
             const isSelected = activeJob?.id === job.id && view === 'studio';
+            const isChecked = selectedJobIds.has(job.id);
             const isProcessing = isActiveStatus(job.status);
             const cost = job.usage?.total_cost_usd;
 
@@ -89,12 +229,29 @@ export const Sidebar: React.FC = () => {
                   setView('studio');
                 }}
                 className={`group relative flex flex-col p-2.5 rounded-lg border text-start transition-all cursor-pointer ${
-                  isSelected
+                  isChecked
+                    ? 'bg-rose-950/20 border-rose-500/40 shadow-sm'
+                    : isSelected
                     ? 'bg-zinc-800/80 border-indigo-500/50 shadow-sm'
                     : 'bg-surface/60 hover:bg-zinc-800/40 border-transparent hover:border-zinc-700/60'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => {}}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSelectJob(job.id, e.shiftKey);
+                    }}
+                    title={t('sidebar.selectProject')}
+                    aria-label={t('sidebar.selectProject')}
+                    data-testid={`sidebar-select-${job.id}`}
+                    className={`mt-0.5 w-3.5 h-3.5 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer flex-shrink-0 transition-opacity ${
+                      isChecked || selectedJobIds.size > 0 ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
+                    }`}
+                  />
                   <span className="text-xs font-medium text-zinc-200 truncate flex-1" dir="auto">
                     {job.file_name}
                   </span>

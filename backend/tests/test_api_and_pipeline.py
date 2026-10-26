@@ -98,3 +98,29 @@ def test_export_endpoints(client: TestClient):
     assert res_vtt.status_code == 200
     assert "WEBVTT" in res_vtt.text
     assert "Hello friend" in res_vtt.text
+
+
+def test_bulk_delete_and_clear_jobs(client: TestClient):
+    ids = [f"test_bulk_{uuid.uuid4().hex[:8]}" for _ in range(3)]
+    with Session(engine) as session:
+        for jid in ids:
+            session.add(Job(id=jid, video_path="test.mp4", file_name=f"{jid}.mp4", status=JobStatus.COMPLETED))
+        session.commit()
+
+    # Delete first two selected jobs
+    res = client.post("/api/jobs/bulk-delete", json={"job_ids": ids[:2]})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["deleted_count"] == 2
+    assert set(data["deleted_ids"]) == set(ids[:2])
+
+    # Third job should still exist
+    assert client.get(f"/api/jobs/{ids[2]}").status_code == 200
+    assert client.get(f"/api/jobs/{ids[0]}").status_code == 404
+
+    # Delete all remaining jobs
+    res_all = client.post("/api/jobs/bulk-delete", json={"delete_all": True})
+    assert res_all.status_code == 200
+    assert ids[2] in res_all.json()["deleted_ids"]
+    assert client.get("/api/jobs").json() == []
+

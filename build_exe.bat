@@ -57,6 +57,10 @@ if %ERRORLEVEL% neq 0 goto :fail
 echo.
 set "DATA=%LOCALAPPDATA%\SubForge Studio"
 echo [5/5] Data folder: "%DATA%"
+if exist "%DATA%\webview\EBWebView\Default\Cache" rmdir /s /q "%DATA%\webview\EBWebView\Default\Cache" >nul 2>nul
+if exist "%DATA%\webview\EBWebView\Default\Code Cache" rmdir /s /q "%DATA%\webview\EBWebView\Default\Code Cache" >nul 2>nul
+if exist "backend\webview\EBWebView\Default\Cache" rmdir /s /q "backend\webview\EBWebView\Default\Cache" >nul 2>nul
+if exist "backend\webview\EBWebView\Default\Code Cache" rmdir /s /q "backend\webview\EBWebView\Default\Code Cache" >nul 2>nul
 if exist "%DATA%\.env" goto :data_done
 if not exist "backend\.env" goto :data_done
 if not exist "%DATA%" mkdir "%DATA%"

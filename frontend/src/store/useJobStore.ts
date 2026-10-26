@@ -146,6 +146,8 @@ interface JobState {
   cancelActiveJob: () => Promise<void>;
   retranslateActiveJob: (options: RetranslateOptions) => Promise<void>;
   deleteJob: (jobId: string) => Promise<void>;
+  deleteJobs: (jobIds: string[]) => Promise<void>;
+  deleteAllJobs: () => Promise<void>;
   updateSegment: (segmentId: number, patch: SegmentPatch) => Promise<void>;
   replaceAll: (search: string, replacement: string, column: 'original' | 'translated') => Promise<number>;
   saveGlossary: (glossary: Glossary, profile?: string) => Promise<boolean>;
@@ -486,6 +488,29 @@ export const useJobStore = create<JobState>((set, get) => {
         await api.deleteJob(jobId);
         if (get().activeJob?.id === jobId) get().clearActiveJob();
         set((state) => ({ jobs: state.jobs.filter((j) => j.id !== jobId) }));
+      } catch (e: any) {
+        set({ error: e.message });
+      }
+    },
+
+    deleteJobs: async (jobIds: string[]) => {
+      if (jobIds.length === 0) return;
+      try {
+        await api.deleteJobs(jobIds);
+        const idSet = new Set(jobIds);
+        const activeId = get().activeJob?.id;
+        if (activeId && idSet.has(activeId)) get().clearActiveJob();
+        set((state) => ({ jobs: state.jobs.filter((j) => !idSet.has(j.id)) }));
+      } catch (e: any) {
+        set({ error: e.message });
+      }
+    },
+
+    deleteAllJobs: async () => {
+      try {
+        await api.deleteAllJobs();
+        if (get().activeJob) get().clearActiveJob();
+        set({ jobs: [] });
       } catch (e: any) {
         set({ error: e.message });
       }

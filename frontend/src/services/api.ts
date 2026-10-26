@@ -97,6 +97,14 @@ export const api = {
     return request(`${API_BASE}/jobs/${jobId}`, { method: 'DELETE' }, 'Failed to delete job');
   },
 
+  deleteJobs(jobIds: string[]): Promise<{ deleted_count: number; deleted_ids: string[] }> {
+    return request(`${API_BASE}/jobs/bulk-delete`, json('POST', { job_ids: jobIds }), 'Failed to delete selected jobs');
+  },
+
+  deleteAllJobs(): Promise<{ deleted_count: number; deleted_ids: string[] }> {
+    return request(`${API_BASE}/jobs/bulk-delete`, json('POST', { delete_all: true }), 'Failed to clear jobs');
+  },
+
   updateSegment(jobId: string, segmentId: number, patch: SegmentPatch): Promise<SubtitleSegment> {
     return request(
       `${API_BASE}/jobs/${jobId}/segments/${segmentId}`,

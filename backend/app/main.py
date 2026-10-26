@@ -87,12 +87,22 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str):
 
 
 
+class NoCacheIndexStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if path in ("", ".", "index.html") or response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+
 # If production frontend build exists, serve it; otherwise provide API root
 # The desktop launcher (packaged exe) points this at its bundled copy
 frontend_dist = Path(os.environ.get("SUBFORGE_FRONTEND_DIST")
                      or Path(__file__).resolve().parent.parent.parent / "frontend" / "dist")
 if frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+    app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="static")
 else:
     @app.get("/")
     def root():
