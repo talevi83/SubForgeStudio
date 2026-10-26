@@ -1,3 +1,24 @@
+<img width="1920" height="911" alt="image" src="https://github.com/user-attachments/assets/5c09184d-7135-4893-93c3-c53b47e2acd2" />
+
+<img width="1920" height="911" alt="image" src="https://github.com/user-attachments/assets/b47db855-8b15-4fe6-96ed-58caf6d4fa38" />
+
+<img width="1039" height="760" alt="image" src="https://github.com/user-attachments/assets/d34a6626-c7f5-4693-8c29-1c9b47543e87" />
+
+<img width="932" height="1131" alt="image" src="https://github.com/user-attachments/assets/1e232fea-8669-4f53-a20b-861f517bee6e" />
+
+<img width="964" height="450" alt="image" src="https://github.com/user-attachments/assets/b4156893-1c64-44bb-b908-50f788accc9e" />
+
+<img width="920" height="1016" alt="image" src="https://github.com/user-attachments/assets/50396fd1-7ced-4bdb-b1de-41fc392ab90b" />
+
+<img width="921" height="664" alt="image" src="https://github.com/user-attachments/assets/b6d2d9cb-2618-4a3d-b2f2-52d472a6af8b" />
+
+<img width="914" height="1068" alt="image" src="https://github.com/user-attachments/assets/58d0d7ef-9055-4809-b791-587f71f53a22" />
+
+<img width="1320" height="651" alt="image" src="https://github.com/user-attachments/assets/97bd0584-a623-44d6-a122-6975b51c3449" />
+
+
+
+
 # SubForge Studio 🎬
 
 **SubForge Studio** is a modular local web application for automated video subtitling, high-precision Speech-to-Text transcription with word-level timing, broadcast-grade subtitle refinement, and context-aware batch translation powered by Google Gemini API (with first-class RTL/Hebrew support).
