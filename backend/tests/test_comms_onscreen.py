@@ -124,7 +124,7 @@ def test_consecutive_frames_with_same_text_merge_into_one_segment():
     assert first["start_time"] == 100.0 and first["end_time"] == 105.0  # last seen + 1.0s
     assert first["segment_type"] == "ON_SCREEN"
     assert second["original_text"] == "[Damascus, Syria]"
-    assert second["end_time"] - second["start_time"] == pytest.approx(1.5)  # minimum duration
+    assert second["end_time"] - second["start_time"] == pytest.approx(3.0)  # minimum duration 3.0s
 
 
 def test_static_run_extends_span_and_far_repeats_stay_separate():
@@ -565,3 +565,34 @@ def test_unavailable_vision_model_stops_early_with_clear_warning(tmp_path, monke
     assert job["status"] == "COMPLETED"
     assert "not available to new users" in job["warning_message"]
     assert denied.calls <= 3  # stopped at the first refusal (one per concurrent batch at most)
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_update_job_onscreen_position_and_bulk_delete_segments(tmp_path, monkeypatch):
+    video = tmp_path / f"pos_{uuid.uuid4().hex[:6]}.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:d=10",
+                    "-f", "lavfi", "-i", "sine=duration=10", "-shortest", str(video)], check=True)
+    monkeypatch.setattr(orch, "TranscribeStage",
+                        lambda: TranscribeStage(_FakeWhisper([(1.0, "[Tehran.]"), (4.0, "Hello there."), (7.0, "Bye.")])))
+    with TestClient(app) as client:
+        job = _run_job(client, video, detect_onscreen_text=False)
+        jid = job["id"]
+        assert job["onscreen_position"] == "top_center"
+
+        # Update onscreen_position after completion
+        res = client.patch(f"/api/jobs/{jid}/settings", json={"onscreen_position": "middle_right"})
+        assert res.status_code == 200
+        assert res.json()["onscreen_position"] == "middle_right"
+
+        # Exported SRT should use {\an6} for the bracketed line
+        srt = client.get(f"/api/jobs/{jid}/export/srt?use_translated=false&apply_rtl=false").text
+        assert "{\\an6}[Tehran.]" in srt
+
+        # Bulk delete segments
+        seg_ids = [s["id"] for s in res.json()["segments"][:2]]
+        del_res = client.request("DELETE", f"/api/jobs/{jid}/segments", json=seg_ids)
+        assert del_res.status_code == 200
+        remaining = del_res.json()["segments"]
+        assert len(remaining) == 1
+        assert remaining[0]["index"] == 1
+        assert remaining[0]["original_text"] == "Bye."

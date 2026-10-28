@@ -20,6 +20,7 @@ from app.models.schemas import (
     GlossaryUpdate,
     JobCreate,
     JobResponse,
+    JobSettingsUpdate,
     DetectSpeakersRequest,
     DetectSpeakersResponse,
     MoveSegmentRequest,
@@ -126,6 +127,7 @@ def _job_to_response(
         comms_boost=job.comms_boost,
         high_speech_sensitivity=getattr(job, "high_speech_sensitivity", False),
         use_embedded_subtitles=getattr(job, "use_embedded_subtitles", True),
+        selected_subtitle_stream=getattr(job, "selected_subtitle_stream", None),
         detect_onscreen_text=job.detect_onscreen_text,
         onscreen_sensitivity=getattr(job, "onscreen_sensitivity", 2),
         allow_onscreen_overlap=getattr(job, "allow_onscreen_overlap", True),
@@ -183,6 +185,7 @@ async def create_job(req: JobCreate, session: Session = Depends(get_session)):
         comms_boost=req.comms_boost,
         high_speech_sensitivity=req.high_speech_sensitivity,
         use_embedded_subtitles=req.use_embedded_subtitles,
+        selected_subtitle_stream=req.selected_subtitle_stream,
         detect_onscreen_text=req.detect_onscreen_text,
         onscreen_sensitivity=req.onscreen_sensitivity,
         allow_onscreen_overlap=req.allow_onscreen_overlap,
@@ -235,6 +238,52 @@ def list_jobs(session: Session = Depends(get_session)):
 def get_job(job_id: str, session: Session = Depends(get_session)):
     """Retrieve full job details and all subtitle segments."""
     return _job_to_response(_get_job_or_404(session, job_id))
+
+
+_VALID_ONSCREEN_POSITIONS = {"top_center", "middle_right", "middle_left", "top_right", "top_left", "middle_center"}
+
+
+@router.patch("/{job_id}/settings", response_model=JobResponse)
+def update_job_settings(job_id: str, req: JobSettingsUpdate, session: Session = Depends(get_session)):
+    """Update post-processing display/export settings (such as onscreen_position) on an existing job."""
+    job = _get_job_or_404(session, job_id)
+    if req.onscreen_position is not None:
+        pos = req.onscreen_position.strip()
+        if pos not in _VALID_ONSCREEN_POSITIONS:
+            raise HTTPException(status_code=400, detail=f"Unknown onscreen_position: {pos}")
+        job.onscreen_position = pos
+    job.updated_at = _now()
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return _job_to_response(job)
+
+
+@router.delete("/{job_id}/segments", response_model=SegmentsChangeResponse)
+def delete_segments_bulk(job_id: str, segment_ids: List[int], session: Session = Depends(get_session)):
+    """Delete multiple subtitle lines by ID and renumber remaining lines."""
+    job = _get_job_or_404(session, job_id)
+    if job.status in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="The job is still running; delete lines when it has finished")
+    if not segment_ids:
+        rows = _ordered_rows(session, job_id)
+        return SegmentsChangeResponse(changed=0, segments=[_segment_to_schema(r) for r in rows])
+    to_delete = session.exec(
+        select(SubtitleSegmentRecord).where(
+            SubtitleSegmentRecord.job_id == job_id,
+            SubtitleSegmentRecord.id.in_(segment_ids),
+        )
+    ).all()
+    for seg in to_delete:
+        session.delete(seg)
+    session.flush()
+    rows = _ordered_rows(session, job_id)
+    rows.sort(key=lambda r: (r.start_time, r.end_time))
+    for position, row in enumerate(rows, start=1):
+        row.index = position
+        session.add(row)
+    session.commit()
+    return SegmentsChangeResponse(changed=len(to_delete), segments=[_segment_to_schema(r) for r in rows])
 
 
 @router.post("/{job_id}/cancel")

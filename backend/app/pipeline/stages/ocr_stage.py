@@ -39,7 +39,7 @@ _SCENE_CHANGE = 0.12      # mean absolute pixel difference (0..1) that counts as
 _OVERLAY_CHANGE = 0.065   # localized change from a lower-third chyron or title appearing mid-shot
 _STATIC = 0.015           # below this two frames are considered identical
 _ONSCREEN_BUFFER = 1.0    # seconds added after the last frame a text was seen in
-_ONSCREEN_MIN_DURATION = 1.5
+_ONSCREEN_MIN_DURATION = 3.0
 _ONSCREEN_REPEAT_WINDOW = 180.0  # the same sign/title seen again within this time is not shown again
 _TAG_MAX_CHARS = 6               # a lone short word ("EAGLE", "LIVE") is a HUD/callsign label, not a title
 _TAG_MAX_UPPER = 12              # a lone ALL-CAPS word ("VULTURE") is a callsign even when longer
@@ -127,11 +127,22 @@ def pick_dialogue_track(
     source_language: Optional[str] = "auto",
     audio_streams: Sequence[Any] = (),
     selected_audio_stream: int = 0,
+    selected_subtitle_stream: Optional[int] = None,
 ) -> Optional[SubtitleStreamInfo]:
     """
     Find the best embedded text-based full dialogue subtitle track, if any.
-    Prefers clean dialogue over SDH, matching source or audio stream language.
+    If `selected_subtitle_stream` is explicitly given, return that text-based track directly.
+    Otherwise, prefers clean dialogue over SDH, matching source or audio stream language,
+    and falls back to any available text-based dialogue track (including foreign languages).
     """
+    if selected_subtitle_stream is not None:
+        explicit = next(
+            (s for s in streams if s.index == selected_subtitle_stream and s.text_based),
+            None,
+        )
+        if explicit is not None:
+            return explicit
+
     candidates = [s for s in streams if s.text_based and not s.looks_forced]
     if not candidates:
         return None
@@ -146,28 +157,29 @@ def pick_dialogue_track(
     if not filtered:
         filtered = candidates
 
-    desired_lang: Optional[str] = None
+    from app.utils.languages import language_code, language_name
+
+    desired_code: Optional[str] = None
     if source_language and source_language.lower() not in ("auto", "none"):
-        desired_lang = source_language.lower()
+        desired_code = language_code(source_language) or source_language.lower()
     elif audio_streams:
         audio = next((a for a in audio_streams if getattr(a, "index", None) == selected_audio_stream), None)
         if audio and getattr(audio, "language", None) and audio.language.lower() not in ("und", "unknown"):
-            desired_lang = audio.language.lower()
+            desired_code = language_code(audio.language) or audio.language.lower()
 
     def _lang_match_score(s: SubtitleStreamInfo) -> int:
-        s_lang = (s.language or "").lower()
+        s_code = language_code(s.language) or (s.language or "").lower()
         s_title = (s.title or "").lower()
-        if desired_lang:
-            if s_lang == desired_lang or desired_lang in s_title:
+        if desired_code:
+            desired_name = language_name(desired_code, "").lower()
+            if s_code == desired_code or (desired_name and desired_name in s_title) or desired_code in s_title:
                 return 0
-            if desired_lang in ("en", "eng") and (s_lang in ("en", "eng") or "english" in s_title):
-                return 0
-            if desired_lang in ("he", "heb") and (s_lang in ("he", "heb") or "hebrew" in s_title):
-                return 0
+            if s_code in ("und", ""):
+                return 1
             return 2
-        if s_lang in ("en", "eng") or "english" in s_title:
+        if s_code == "en" or "english" in s_title:
             return 0
-        if s_lang in ("und", ""):
+        if s_code in ("und", ""):
             return 1
         return 2
 
@@ -179,12 +191,7 @@ def pick_dialogue_track(
             s.index,
         )
     )
-    best = filtered[0]
-    if _lang_match_score(best) <= 1:
-        return best
-    if desired_lang and _lang_match_score(best) > 1:
-        return None
-    return best
+    return filtered[0]
 
 
 _SRT_TIME = re.compile(
@@ -301,11 +308,17 @@ def format_onscreen_text(text: str) -> str:
     return f"[{' — '.join(lines)}]" if lines else ""
 
 
-def make_onscreen_segment(start: float, end: float, text: str, bracket: bool = True) -> Dict[str, Any]:
+def make_onscreen_segment(
+    start: float,
+    end: float,
+    text: str,
+    bracket: bool = True,
+    min_duration: float = _ONSCREEN_MIN_DURATION,
+) -> Dict[str, Any]:
     clean = format_onscreen_text(text) if bracket else text.strip()
     return {
         "start_time": round(start, 3),
-        "end_time": round(max(end, start + 0.5), 3),
+        "end_time": round(max(end, start + min_duration), 3),
         "original_text": clean,
         "translated_text": None,
         "translation_failed": False,
@@ -413,10 +426,10 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
 
 
 def _fill_static_runs(frames: List[Frame], interval: float) -> None:
-    """For each frame, how long the picture stays (nearly) unchanged afterwards."""
+    """For each frame, how long the picture or overlay stays on screen before a cut or graphic fade-out."""
     for i in range(len(frames) - 1, -1, -1):
         nxt = frames[i + 1] if i + 1 < len(frames) else None
-        if nxt is not None and nxt.change < _STATIC:
+        if nxt is not None and nxt.change < _OVERLAY_CHANGE:
             frames[i].static_until = nxt.static_until
         else:
             frames[i].static_until = frames[i].time + interval * 0.5
@@ -614,7 +627,13 @@ def merge_frame_detections(
             nxt_start = groups[idx + 1]["start"]
             if nxt_start > g["start"] and end > nxt_start:
                 end = max(g["start"] + 0.5, nxt_start - 0.084)
-        seg = make_onscreen_segment(g["start"], end, g["text"], bracket=bracket)
+        seg = make_onscreen_segment(
+            g["start"],
+            end,
+            g["text"],
+            bracket=bracket,
+            min_duration=min_duration if segment_type == SegmentType.ON_SCREEN.value else 0.5,
+        )
         seg["segment_type"] = segment_type
         if seg["original_text"]:
             segments.append(seg)

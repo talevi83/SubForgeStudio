@@ -7,6 +7,8 @@ import { Volume2, Film, Check, Captions } from 'lucide-react';
 export const StreamSelector: React.FC = () => {
   const probeResult = useJobStore((s) => s.probeResult);
   const selectedStream = useJobStore((s) => s.pipelineConfig.selected_audio_stream);
+  const useEmbeddedSubtitles = useJobStore((s) => s.pipelineConfig.use_embedded_subtitles !== false);
+  const selectedSubtitleStream = useJobStore((s) => s.pipelineConfig.selected_subtitle_stream);
   const updatePipelineConfig = useJobStore((s) => s.updatePipelineConfig);
   const t = useT();
 
@@ -102,30 +104,84 @@ export const StreamSelector: React.FC = () => {
 
       {subtitleStreams.length > 0 && (
         <div className="space-y-2">
-          <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-            <Captions className="w-3.5 h-3.5 text-indigo-400" />
-            {t('streams.subtitleTracks')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+              <Captions className="w-3.5 h-3.5 text-indigo-400" />
+              {t('streams.subtitleTracks')}
+            </label>
+            {subtitleStreams.some((s) => s.text_based && !s.forced && !/forced|signs|commentary|director/i.test(s.title || '')) && (
+              <label className="flex items-center gap-2 cursor-pointer text-[11px] text-zinc-300 select-none">
+                <span>{t('config.useEmbeddedTitle')}</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={useEmbeddedSubtitles}
+                  checked={useEmbeddedSubtitles}
+                  onChange={(e) => updatePipelineConfig({ use_embedded_subtitles: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <span
+                  className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500 ${
+                    useEmbeddedSubtitles ? 'bg-emerald-600' : 'bg-zinc-700'
+                  }`}
+                  aria-hidden
+                >
+                  <span
+                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                      useEmbeddedSubtitles ? 'start-3.5' : 'start-0.5'
+                    }`}
+                  />
+                </span>
+              </label>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {subtitleStreams.map((s) => {
               const forced = s.forced || /forced|signs/i.test(s.title || '');
               const fullDialogue = s.text_based && !forced && !/commentary|director/i.test(s.title || '');
+              const isSelectedTrack =
+                useEmbeddedSubtitles &&
+                fullDialogue &&
+                (selectedSubtitleStream === s.index ||
+                  (selectedSubtitleStream == null &&
+                    subtitleStreams.find(
+                      (x) => x.text_based && !x.forced && !/forced|signs|commentary|director/i.test(x.title || '')
+                    )?.index === s.index));
               return (
-                <span
+                <button
+                  type="button"
                   key={s.index}
-                  className={`text-[11px] px-2 py-1 rounded-md border ${
+                  disabled={!s.text_based || forced}
+                  onClick={() => {
+                    if (fullDialogue) {
+                      updatePipelineConfig({
+                        use_embedded_subtitles: true,
+                        selected_subtitle_stream: s.index,
+                      });
+                    }
+                  }}
+                  className={`text-[11px] px-2.5 py-1 rounded-md border flex items-center gap-1 transition-all ${
                     forced
-                      ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                      ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 cursor-default'
+                      : isSelectedTrack
+                      ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-200 ring-1 ring-emerald-500/40 cursor-pointer'
                       : fullDialogue
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                      : 'bg-sunken border-line text-zinc-400'
+                      ? 'bg-sunken border-line hover:border-emerald-500/40 text-zinc-300 cursor-pointer'
+                      : 'bg-sunken border-line text-zinc-400 cursor-default'
                   }`}
                   title={s.text_based ? t('streams.textSubs') : t('streams.imageSubs')}
                 >
-                  #{s.index} {s.title || s.language?.toUpperCase() || t('streams.subtitles')} · {s.codec_name}
+                  <span>
+                    #{s.index} {s.title || s.language?.toUpperCase() || t('streams.subtitles')}
+                    {s.language && s.title && !s.title.toLowerCase().includes(s.language.toLowerCase())
+                      ? ` (${s.language.toUpperCase()})`
+                      : ''}{' '}
+                    · {s.codec_name}
+                  </span>
                   {forced && <strong className="ms-1">{t('streams.forced')}</strong>}
                   {!s.text_based && <span className="ms-1 opacity-70">{t('streams.image')}</span>}
-                </span>
+                  {isSelectedTrack && <Check className="w-3 h-3 text-emerald-400 ms-0.5" />}
+                </button>
               );
             })}
           </div>

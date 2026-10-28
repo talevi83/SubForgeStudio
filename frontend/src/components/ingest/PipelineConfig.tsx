@@ -92,10 +92,12 @@ export const PipelineConfig: React.FC = () => {
   const forcedTrack = (probeResult?.subtitle_streams || []).find(
     (s) => s.text_based && (s.forced || /forced|signs/i.test(s.title || ''))
   );
-  // Embedded text-based full dialogue subtitle track that can be extracted directly
-  const dialogueTrack = (probeResult?.subtitle_streams || []).find(
+  // Embedded text-based full dialogue subtitle tracks that can be extracted directly
+  const dialogueTracks = (probeResult?.subtitle_streams || []).filter(
     (s) => s.text_based && !s.forced && !/forced|signs|commentary|director/i.test(s.title || '')
   );
+  const dialogueTrack =
+    dialogueTracks.find((s) => s.index === pipelineConfig.selected_subtitle_stream) || dialogueTracks[0];
   const translationWithoutKey =
     pipelineConfig.enable_translation && !isGeminiReady && !pipelineConfig.gemini_api_key_override;
 
@@ -199,24 +201,100 @@ export const PipelineConfig: React.FC = () => {
             </label>
 
             {dialogueTrack && (
-              <div className="mt-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] space-y-1.5">
-                <div className="flex items-start gap-2 text-emerald-300 font-medium">
-                  <FileText className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                  <span>
-                    {t('config.embeddedDialogueFound', {
-                      name: dialogueTrack.title || dialogueTrack.language || `#${dialogueTrack.index}`,
-                    })}
+              <div
+                className={`mt-2 p-3 rounded-lg border text-[11px] space-y-2 transition-colors ${
+                  pipelineConfig.use_embedded_subtitles !== false
+                    ? 'bg-emerald-500/10 border-emerald-500/40'
+                    : 'bg-surface border-line'
+                }`}
+              >
+                <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                  <span className="flex items-start gap-2 min-w-0">
+                    <FileText
+                      className={`w-4 h-4 mt-0.5 shrink-0 ${
+                        pipelineConfig.use_embedded_subtitles !== false ? 'text-emerald-400' : 'text-zinc-400'
+                      }`}
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block font-semibold text-zinc-200">{t('config.useEmbeddedTitle')}</span>
+                      <span className="block text-zinc-400 leading-relaxed">{t('config.useEmbeddedDescription')}</span>
+                    </span>
                   </span>
-                </div>
-                <label className="pt-1 flex items-center justify-between gap-3 cursor-pointer text-zinc-300 border-t border-emerald-500/20">
-                  <span className="text-[11px]">{t('config.useEmbeddedTitle')}</span>
                   <input
                     type="checkbox"
+                    role="switch"
+                    data-testid="use-embedded-subtitles-toggle"
+                    aria-checked={pipelineConfig.use_embedded_subtitles !== false}
                     checked={pipelineConfig.use_embedded_subtitles !== false}
                     onChange={(e) => updatePipelineConfig({ use_embedded_subtitles: e.target.checked })}
-                    className="w-3.5 h-3.5 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-400 bg-zinc-800 cursor-pointer"
+                    className="sr-only peer"
                   />
+                  <span
+                    className={`relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500 ${
+                      pipelineConfig.use_embedded_subtitles !== false ? 'bg-emerald-600' : 'bg-zinc-700'
+                    }`}
+                    aria-hidden
+                  >
+                    <span
+                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                        pipelineConfig.use_embedded_subtitles !== false ? 'start-4.5' : 'start-0.5'
+                      }`}
+                    />
+                  </span>
                 </label>
+
+                {pipelineConfig.use_embedded_subtitles !== false ? (
+                  <div className="pt-2 border-t border-emerald-500/20 space-y-2">
+                    <p className="text-emerald-300 font-medium">
+                      {t('config.embeddedDialogueFound', {
+                        name:
+                          (dialogueTrack.title || dialogueTrack.language?.toUpperCase() || `#${dialogueTrack.index}`) +
+                          (dialogueTrack.language &&
+                          dialogueTrack.title &&
+                          !dialogueTrack.title.toLowerCase().includes(dialogueTrack.language.toLowerCase())
+                            ? ` (${dialogueTrack.language.toUpperCase()})`
+                            : ''),
+                      })}
+                    </p>
+                    {dialogueTracks.length > 1 && (
+                      <div>
+                        <label className="block text-zinc-400 mb-1 font-medium">{t('config.selectEmbeddedTrack')}</label>
+                        <select
+                          value={
+                            pipelineConfig.selected_subtitle_stream == null
+                              ? 'auto'
+                              : String(pipelineConfig.selected_subtitle_stream)
+                          }
+                          onChange={(e) =>
+                            updatePipelineConfig({
+                              selected_subtitle_stream: e.target.value === 'auto' ? null : Number(e.target.value),
+                            })
+                          }
+                          className={selectClass}
+                        >
+                          <option value="auto">
+                            {t('config.embeddedAutoTrack', {
+                              name:
+                                dialogueTracks[0].title ||
+                                dialogueTracks[0].language?.toUpperCase() ||
+                                `#${dialogueTracks[0].index}`,
+                            })}
+                          </option>
+                          {dialogueTracks.map((tr) => (
+                            <option key={tr.index} value={String(tr.index)}>
+                              #{tr.index} {tr.title || tr.language?.toUpperCase() || t('streams.subtitles')}
+                              {tr.language ? ` (${tr.language.toUpperCase()})` : ''} · {tr.codec_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="pt-2 border-t border-line text-amber-300/90 font-medium">
+                    {t('config.embeddedWhipserActive')}
+                  </p>
+                )}
               </div>
             )}
           </div>

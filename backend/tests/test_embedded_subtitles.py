@@ -35,6 +35,87 @@ def test_pick_dialogue_track_matches_audio_stream_language():
     assert picked.language == "spa"
 
 
+def test_pick_dialogue_track_foreign_and_explicit_selection():
+    # Even when source_language="en", if only a foreign subtitle track (e.g. Spanish/French) is embedded,
+    # it can still be picked when use_embedded_subtitles is enabled, or chosen explicitly by index.
+    subs = [
+        SubtitleStreamInfo(index=0, codec_name="subrip", language="fre", title="French", forced=False, text_based=True),
+        SubtitleStreamInfo(index=1, codec_name="subrip", language="spa", title="Spanish", forced=False, text_based=True),
+    ]
+    picked_auto = pick_dialogue_track(subs, source_language="en")
+    assert picked_auto is not None
+    assert picked_auto.index == 0
+
+    picked_explicit = pick_dialogue_track(subs, source_language="en", selected_subtitle_stream=1)
+    assert picked_explicit is not None
+    assert picked_explicit.index == 1
+    assert picked_explicit.language == "spa"
+
+
+@pytest.mark.asyncio
+async def test_audio_stage_respects_use_embedded_subtitles_toggle(monkeypatch, tmp_path):
+    import app.pipeline.stages.audio_stage as audio_mod
+    import app.pipeline.stages.ocr_stage as ocr_mod
+
+    extracted_audio_called = []
+
+    async def fake_extract_audio_track(**kwargs):
+        extracted_audio_called.append(kwargs)
+
+    async def fake_extract_dialogue_track(video_path, stream, duration=0.0):
+        return (
+            [
+                {
+                    "index": i,
+                    "start_time": float(i),
+                    "end_time": float(i) + 1.0,
+                    "original_text": f"Line {i}",
+                    "translated_text": None,
+                    "translation_failed": False,
+                    "segment_type": "DIALOGUE",
+                    "confidence": 1.0,
+                }
+                for i in range(1, 10)
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(audio_mod, "extract_audio_track", fake_extract_audio_track)
+    monkeypatch.setattr(ocr_mod, "extract_dialogue_track", fake_extract_dialogue_track)
+
+    sub_stream = SubtitleStreamInfo(index=0, codec_name="subrip", language="spa", title="Spanish", forced=False, text_based=True)
+
+    # Case 1: use_embedded_subtitles = False -> skips embedded subtitles and extracts audio for Whisper
+    ctx_whisper = PipelineContext(
+        job_id="job_whisper",
+        video_path=str(tmp_path / "video.mkv"),
+        file_name="video.mkv",
+        duration=60.0,
+        subtitle_streams=[sub_stream],
+        use_embedded_subtitles=False,
+    )
+    stage = AudioExtractionStage()
+    await stage.execute(ctx_whisper)
+    assert len(extracted_audio_called) == 1
+    assert ctx_whisper.embedded_dialogue_segments == []
+
+    # Case 2: use_embedded_subtitles = True -> extracts embedded subtitles and skips audio extraction
+    extracted_audio_called.clear()
+    ctx_embedded = PipelineContext(
+        job_id="job_embedded",
+        video_path=str(tmp_path / "video.mkv"),
+        file_name="video.mkv",
+        duration=60.0,
+        subtitle_streams=[sub_stream],
+        use_embedded_subtitles=True,
+    )
+    await stage.execute(ctx_embedded)
+    assert len(extracted_audio_called) == 0
+    assert len(ctx_embedded.embedded_dialogue_segments) == 9
+    assert ctx_embedded.detected_language == "es"
+    assert ctx_embedded.effective_source_language == "spa"
+
+
 def test_clean_embedded_dialogue_text():
     # Pure music line removed
     assert clean_embedded_dialogue_text("♪ (THEME MUSIC PLAYING) ♪", is_sdh=True) == ""

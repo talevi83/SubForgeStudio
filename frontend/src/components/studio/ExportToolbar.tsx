@@ -2,16 +2,18 @@ import React, { useState } from 'react';
 import { useJobStore } from '../../store/useJobStore';
 import { api } from '../../services/api';
 import { isActiveStatus, isRtlLanguage } from '../../types';
+import type { OnscreenPosition } from '../../types';
 import { TARGET_LANGUAGES } from '../ingest/languages';
 import { useT } from '../../i18n';
 import { GlossaryDialog } from './GlossaryDialog';
-import { AlertTriangle, Download, FileText, Languages, RotateCw, ScrollText, Users } from 'lucide-react';
+import { AlertTriangle, Download, FileText, Languages, LayoutTemplate, RotateCw, ScrollText, Users } from 'lucide-react';
 
 export const ExportToolbar: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
   const applyRtlExport = useJobStore((s) => s.applyRtlExport);
   const setApplyRtlExport = useJobStore((s) => s.setApplyRtlExport);
   const retranslate = useJobStore((s) => s.retranslateActiveJob);
+  const updateJobOnscreenPosition = useJobStore((s) => s.updateJobOnscreenPosition);
   const systemInfo = useJobStore((s) => s.systemInfo);
   const keyOverride = useJobStore((s) => s.pipelineConfig.gemini_api_key_override);
   const saveGlossary = useJobStore((s) => s.saveGlossary);
@@ -30,6 +32,7 @@ export const ExportToolbar: React.FC = () => {
   const target = targetLanguage ?? activeJob.target_language;
   const isRtl = isRtlLanguage(target);
   const canTranslate = !!systemInfo?.is_gemini_configured || !!keyOverride;
+  const onscreenPos: OnscreenPosition = activeJob.onscreen_position || 'top_center';
 
   const downloadFile = (url: string) => {
     const a = document.createElement('a');
@@ -97,6 +100,26 @@ export const ExportToolbar: React.FC = () => {
             {t('toolbar.retranslateFailed', { count: failedCount })}
           </button>
         )}
+        <div
+          className="flex items-center gap-1.5 bg-sunken border border-line rounded-lg px-2 py-1 text-xs text-zinc-300"
+          title={t('toolbar.onscreenPositionTitle')}
+        >
+          <LayoutTemplate className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+          <span className="text-[11px] text-zinc-400 whitespace-nowrap">{t('toolbar.onscreenPositionLabel')}</span>
+          <select
+            aria-label={t('toolbar.onscreenPositionLabel')}
+            data-testid="studio-onscreen-position"
+            value={onscreenPos}
+            onChange={(e) => void updateJobOnscreenPosition(e.target.value as OnscreenPosition)}
+            className="bg-transparent border-0 text-xs text-cyan-300 font-medium focus:outline-none cursor-pointer"
+          >
+            <option value="top_center" className="bg-zinc-900 text-zinc-200">{t('settings.pos.top_center')}</option>
+            <option value="middle_right" className="bg-zinc-900 text-zinc-200">{t('settings.pos.middle_right')}</option>
+            <option value="middle_left" className="bg-zinc-900 text-zinc-200">{t('settings.pos.middle_left')}</option>
+            <option value="top_right" className="bg-zinc-900 text-zinc-200">{t('settings.pos.top_right')}</option>
+            <option value="top_left" className="bg-zinc-900 text-zinc-200">{t('settings.pos.top_left')}</option>
+          </select>
+        </div>
       </div>
 
       {glossaryOpen && (

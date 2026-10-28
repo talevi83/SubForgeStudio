@@ -155,12 +155,14 @@ class AudioExtractionStage(PipelineStage):
 
         if ctx.use_embedded_subtitles and not ctx.sync_cues and ctx.subtitle_streams:
             from app.pipeline.stages.ocr_stage import pick_dialogue_track, extract_dialogue_track
+            from app.utils.languages import language_code
 
             track = pick_dialogue_track(
                 ctx.subtitle_streams,
                 source_language=ctx.source_language,
                 audio_streams=ctx.audio_streams,
                 selected_audio_stream=ctx.selected_audio_stream,
+                selected_subtitle_stream=ctx.selected_subtitle_stream,
             )
             if track:
                 try:
@@ -176,8 +178,11 @@ class AudioExtractionStage(PipelineStage):
                         ctx.embedded_subtitle_stream = track
                         if onscreen_segs:
                             ctx.onscreen_segments.extend(onscreen_segs)
-                        if not ctx.detected_language or ctx.detected_language.lower() in ("auto", "none"):
-                            ctx.detected_language = track.language or "en"
+                        track_lang = language_code(track.language) or track.language
+                        if track_lang and track_lang.lower() not in ("und", "unknown", "none", "auto"):
+                            ctx.detected_language = track_lang
+                        elif not ctx.detected_language or ctx.detected_language.lower() in ("auto", "none"):
+                            ctx.detected_language = "en"
                         track_desc = f"'{track.title}'" if track.title else f"track #{track.index} ({track.language})"
                         logger.info(
                             f"Using embedded dialogue subtitle track #{track.index} "

@@ -7,7 +7,7 @@ import { RowTranslateDialog } from './RowTranslateDialog';
 import { InsertSegmentDialog } from './InsertSegmentDialog';
 import { findSegmentAt } from '../../utils/time';
 import { useT } from '../../i18n';
-import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag } from 'lucide-react';
+import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
 import type { QAIssue } from '../../types';
 
@@ -23,6 +23,7 @@ export const SubtitleTable: React.FC = () => {
   const updateSegment = useJobStore((s) => s.updateSegment);
   const replaceAll = useJobStore((s) => s.replaceAll);
   const deleteSegment = useJobStore((s) => s.deleteSegment);
+  const deleteSegments = useJobStore((s) => s.deleteSegments);
   const retimeActiveJob = useJobStore((s) => s.retimeActiveJob);
   const undoRetime = useJobStore((s) => s.undoRetime);
   const moveSegment = useJobStore((s) => s.moveSegment);
@@ -130,24 +131,54 @@ export const SubtitleTable: React.FC = () => {
   );
   const dragFromPos = dragId === null ? -1 : segments.findIndex((s) => s.id === dragId);
 
+  const isLive = segments.length > 0 && segments.some((s) => !s.id);
   const jobFinished = !!activeJob && !isActiveStatus(activeJob.status);
-  const canSelect = jobFinished && canTranslate;
+  const canSelect = jobFinished && !isLive;
   // Selection belongs to the job being shown and goes away when a run starts
   useEffect(() => {
     setChecked(new Set()); // eslint-disable-line react-hooks/set-state-in-effect
     setLastChecked(null);
   }, [activeJob?.id, jobFinished]);
 
+  const selectableFilteredIds = useMemo(
+    () => filteredSegments.map((s) => s.id).filter((id): id is number => typeof id === 'number'),
+    [filteredSegments]
+  );
+  const allFilteredChecked =
+    selectableFilteredIds.length > 0 && selectableFilteredIds.every((id) => checked.has(id));
+  const someFilteredChecked =
+    selectableFilteredIds.length > 0 && !allFilteredChecked && selectableFilteredIds.some((id) => checked.has(id));
+
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someFilteredChecked;
+    }
+  }, [someFilteredChecked]);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      const allIn = selectableFilteredIds.length > 0 && selectableFilteredIds.every((id) => next.has(id));
+      if (allIn) {
+        for (const id of selectableFilteredIds) next.delete(id);
+      } else {
+        for (const id of selectableFilteredIds) next.add(id);
+      }
+      return next;
+    });
+  }, [selectableFilteredIds]);
+
   const handleCheck = useCallback(
     (id: number, shift: boolean) => {
       setChecked((prev) => {
         const next = new Set(prev);
         if (shift && lastChecked !== null) {
-          const a = segments.findIndex((s) => s.id === lastChecked);
-          const b = segments.findIndex((s) => s.id === id);
+          const a = filteredSegments.findIndex((s) => s.id === lastChecked);
+          const b = filteredSegments.findIndex((s) => s.id === id);
           if (a >= 0 && b >= 0) {
             const [lo, hi] = a < b ? [a, b] : [b, a];
-            for (let i = lo; i <= hi; i++) if (segments[i].id) next.add(segments[i].id!);
+            for (let i = lo; i <= hi; i++) if (filteredSegments[i].id) next.add(filteredSegments[i].id!);
             return next;
           }
         }
@@ -157,7 +188,7 @@ export const SubtitleTable: React.FC = () => {
       });
       setLastChecked(id);
     },
-    [lastChecked, segments]
+    [lastChecked, filteredSegments]
   );
 
   const translateRows = (opts: {
@@ -221,7 +252,6 @@ export const SubtitleTable: React.FC = () => {
     }
   }, [activeIndex, autoScroll]);
 
-  const isLive = segments.length > 0 && segments.some((s) => !s.id);
   const insertDraft = useJobStore((s) => s.insertDraft);
   const openInsert = useJobStore((s) => s.openInsert);
   const videoCurrentTimeNow = () => useJobStore.getState().videoCurrentTime;
@@ -230,6 +260,14 @@ export const SubtitleTable: React.FC = () => {
     (seg: SubtitleSegment) => openInsert({ time: useJobStore.getState().videoCurrentTime, afterId: seg.id }),
     [openInsert]
   );
+
+  const handleDeleteSelected = async () => {
+    if (checked.size === 0) return;
+    if (!window.confirm(t('table.confirmDeleteSelectedRows', { count: checked.size }))) return;
+    const ids = [...checked];
+    setChecked(new Set());
+    await deleteSegments(ids);
+  };
 
   return (
     <div className="flex flex-col h-full bg-surface border border-line rounded-xl overflow-hidden shadow-xl">
@@ -453,38 +491,52 @@ export const SubtitleTable: React.FC = () => {
           data-testid="rows-bar"
         >
           <span className="text-indigo-200 font-medium">{t('table.selected', { count: checked.size })}</span>
-          <button
-            onClick={() => translateRows({ addressee: 'female' })}
-            className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
-            data-testid="rows-to-woman"
-          >
-            {t('table.toWoman')}
-          </button>
-          <button
-            onClick={() => translateRows({ addressee: 'male' })}
-            className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
-          >
-            {t('table.toMan')}
-          </button>
-          <button
-            onClick={() => translateRows({ speaker: 'female' })}
-            className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
-          >
-            {t('table.speakerWoman')}
-          </button>
-          <button
-            onClick={() => translateRows({ addressee: 'group' })}
-            className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
-          >
-            {t('table.toGroup')}
-          </button>
-          <button
-            onClick={() => setRowsDialog(true)}
-            data-testid="rows-note"
-            className="px-2 py-1 rounded border border-indigo-500/40 text-indigo-200 hover:bg-indigo-500/10"
-          >
-            {t('table.retranslateRows')}
-          </button>
+          {canTranslate && (
+            <>
+              <button
+                onClick={() => translateRows({ addressee: 'female' })}
+                className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
+                data-testid="rows-to-woman"
+              >
+                {t('table.toWoman')}
+              </button>
+              <button
+                onClick={() => translateRows({ addressee: 'male' })}
+                className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
+              >
+                {t('table.toMan')}
+              </button>
+              <button
+                onClick={() => translateRows({ speaker: 'female' })}
+                className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
+              >
+                {t('table.speakerWoman')}
+              </button>
+              <button
+                onClick={() => translateRows({ addressee: 'group' })}
+                className="px-2 py-1 rounded border border-line text-zinc-200 hover:border-indigo-500/60"
+              >
+                {t('table.toGroup')}
+              </button>
+              <button
+                onClick={() => setRowsDialog(true)}
+                data-testid="rows-note"
+                className="px-2 py-1 rounded border border-indigo-500/40 text-indigo-200 hover:bg-indigo-500/10"
+              >
+                {t('table.retranslateRows')}
+              </button>
+            </>
+          )}
+          {canInsert && (
+            <button
+              onClick={() => void handleDeleteSelected()}
+              data-testid="rows-delete"
+              className="flex items-center gap-1 px-2 py-1 rounded border border-rose-500/40 text-rose-300 hover:bg-rose-500/15"
+            >
+              <Trash2 className="w-3 h-3" />
+              {t('table.deleteSelectedRows', { count: checked.size })}
+            </button>
+          )}
           <button onClick={() => setChecked(new Set())} className="ms-auto text-zinc-400 hover:text-white">
             {t('table.clearSelection')}
           </button>
@@ -516,7 +568,31 @@ export const SubtitleTable: React.FC = () => {
         <table className="w-full text-start border-collapse text-xs">
           <thead className="bg-sunken text-zinc-400 sticky top-0 z-10 border-b border-line uppercase font-semibold text-[10px] tracking-wider select-none">
             <tr>
-              <th className="py-2.5 px-3 w-12 text-center">#</th>
+              <th className="py-2.5 px-3 w-14 text-center">
+                <div className="flex items-center justify-center gap-1.5">
+                  {canSelect && selectableFilteredIds.length > 0 && (
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allFilteredChecked}
+                      onChange={toggleSelectAllFiltered}
+                      title={
+                        allFilteredChecked
+                          ? t('table.deselectAllShown')
+                          : t('table.selectAllShown', { count: selectableFilteredIds.length })
+                      }
+                      aria-label={
+                        allFilteredChecked
+                          ? t('table.deselectAllShown')
+                          : t('table.selectAllShown', { count: selectableFilteredIds.length })
+                      }
+                      data-testid="select-all-shown"
+                      className="w-3.5 h-3.5 rounded border-zinc-600 text-indigo-600 bg-zinc-800 cursor-pointer"
+                    />
+                  )}
+                  <span>#</span>
+                </div>
+              </th>
               <th className="py-2.5 px-3 w-48 text-start">{t('table.colTimecode')}</th>
               <th className="py-2.5 px-3 w-1/2 text-start">{t('table.colOriginal')}</th>
               <th className="py-2.5 px-3 w-1/2 text-start">{t('table.colTranslated')}</th>

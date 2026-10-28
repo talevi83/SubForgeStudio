@@ -121,6 +121,7 @@ export interface Job {
   comms_boost: boolean;
   high_speech_sensitivity?: boolean;
   use_embedded_subtitles?: boolean;
+  selected_subtitle_stream?: number | null;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
   allow_onscreen_overlap?: boolean;
@@ -240,6 +241,7 @@ export interface JobConfig {
   comms_boost: boolean;
   high_speech_sensitivity?: boolean;
   use_embedded_subtitles?: boolean;
+  selected_subtitle_stream?: number | null;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
   allow_onscreen_overlap?: boolean;

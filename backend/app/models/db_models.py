@@ -77,6 +77,7 @@ class Job(SQLModel, table=True):
     high_speech_sensitivity: bool = Field(default=False)
     # Extract embedded text-based full dialogue subtitles instead of running Whisper
     use_embedded_subtitles: bool = Field(default=True)
+    selected_subtitle_stream: Optional[int] = Field(default=None)
     # Forced subtitle tracks + Gemini Vision scan for burned-in narrative text
     detect_onscreen_text: bool = Field(default=False)
     # On-screen text sensitivity: 1=Strict, 2=Balanced, 3=Broad

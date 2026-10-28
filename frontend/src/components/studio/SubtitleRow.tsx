@@ -215,8 +215,8 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
             }}
             title={t('table.selectRow')}
             aria-label={t('table.selectRow')}
-            className={`mx-auto mb-0.5 block w-3 h-3 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer ${
-              checked ? '' : 'opacity-0 group-hover:opacity-100'
+            className={`mx-auto mb-0.5 block w-3 h-3 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer transition-opacity ${
+              checked ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
             }`}
           />
         )}

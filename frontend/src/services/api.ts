@@ -85,6 +85,10 @@ export const api = {
     return request(`${API_BASE}/jobs/${jobId}`, undefined, `Failed to load job ${jobId}`);
   },
 
+  updateJobSettings(jobId: string, patch: { onscreen_position?: import('../types').OnscreenPosition }): Promise<Job> {
+    return request(`${API_BASE}/jobs/${jobId}/settings`, json('PATCH', patch), 'Failed to update job settings');
+  },
+
   cancelJob(jobId: string): Promise<unknown> {
     return request(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' }, 'Failed to cancel job');
   },
@@ -176,6 +180,11 @@ export const api = {
   /** Delete a subtitle line by user request. */
   deleteSegment(jobId: string, segmentId: number): Promise<SegmentsChange> {
     return request(`${API_BASE}/jobs/${jobId}/segments/${segmentId}`, { method: 'DELETE' }, 'Could not delete the line');
+  },
+
+  /** Delete multiple subtitle lines by user request. */
+  deleteSegments(jobId: string, segmentIds: number[]): Promise<SegmentsChange> {
+    return request(`${API_BASE}/jobs/${jobId}/segments`, json('DELETE', segmentIds), 'Could not delete selected lines');
   },
 
   moveSegment(jobId: string, segmentId: number, toPosition: number): Promise<SegmentsChange> {

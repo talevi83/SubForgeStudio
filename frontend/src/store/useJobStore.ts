@@ -28,6 +28,7 @@ const DEFAULT_CONFIG: JobConfig = {
   comms_boost: false,
   high_speech_sensitivity: false,
   use_embedded_subtitles: true,
+  selected_subtitle_stream: null,
   detect_onscreen_text: false,
   onscreen_sensitivity: 2,
   allow_onscreen_overlap: true,
@@ -54,7 +55,13 @@ function loadSavedConfig(): Partial<JobConfig> {
 
 function saveConfig(config: JobConfig) {
   try {
-    const { gemini_api_key_override: _key, selected_audio_stream: _stream, context_notes: _notes, ...rest } = config;
+    const {
+      gemini_api_key_override: _key,
+      selected_audio_stream: _stream,
+      selected_subtitle_stream: _subStream,
+      context_notes: _notes,
+      ...rest
+    } = config;
     localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(rest));
   } catch {
     /* ignore */
@@ -124,6 +131,10 @@ interface JobState {
   addSegment: (body: SegmentCreate) => Promise<string | null>;
   /** Delete a line; resolves to an error message, or null when it was deleted */
   deleteSegment: (segmentId: number) => Promise<string | null>;
+  /** Delete multiple lines; resolves to an error message, or null when they were deleted */
+  deleteSegments: (segmentIds: number[]) => Promise<string | null>;
+  /** Update onscreen_position on the active job and persist it */
+  updateJobOnscreenPosition: (pos: import('../types').OnscreenPosition) => Promise<void>;
   /** New project: make subtitles from the audio, or sync a subtitle file the user already has */
   ingestMode: IngestMode;
   syncFile: ParsedSubtitles | null;
@@ -314,6 +325,30 @@ export const useJobStore = create<JobState>((set, get) => {
         return e instanceof Error ? e.message : String(e);
       }
     },
+    deleteSegments: async (segmentIds) => {
+      const job = get().activeJob;
+      if (!job || segmentIds.length === 0) return 'No project is open';
+      try {
+        const res = await api.deleteSegments(job.id, segmentIds);
+        if (get().activeJob?.id !== job.id) return null;
+        patchActiveJob({ segments: res.segments });
+        set({ selectedSegmentIndex: null });
+        return null;
+      } catch (e: unknown) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
+    updateJobOnscreenPosition: async (pos) => {
+      const job = get().activeJob;
+      get().updatePipelineConfig({ onscreen_position: pos });
+      if (!job) return;
+      patchActiveJob({ onscreen_position: pos });
+      try {
+        await api.updateJobSettings(job.id, { onscreen_position: pos });
+      } catch (e: unknown) {
+        set({ error: e instanceof Error ? e.message : String(e) });
+      }
+    },
     ingestMode: savedSyncPrefs.ingestMode,
     syncFile: null,
     syncLanguage: null,
@@ -404,7 +439,11 @@ export const useJobStore = create<JobState>((set, get) => {
     setProbeResult: (probeResult) => {
       set((state) => ({
         probeResult,
-        pipelineConfig: { ...state.pipelineConfig, selected_audio_stream: 0 },
+        pipelineConfig: {
+          ...state.pipelineConfig,
+          selected_audio_stream: 0,
+          selected_subtitle_stream: null,
+        },
       }));
     },
 

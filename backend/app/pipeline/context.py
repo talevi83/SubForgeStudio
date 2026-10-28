@@ -44,6 +44,7 @@ class PipelineContext:
     comms_boost: bool = False
     high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
+    selected_subtitle_stream: Optional[int] = None
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = 2
     allow_onscreen_overlap: bool = True
@@ -106,6 +107,10 @@ class PipelineContext:
 
     @property
     def effective_source_language(self) -> Optional[str]:
+        if self.embedded_subtitle_stream and getattr(self.embedded_subtitle_stream, "language", None):
+            sub_lang = self.embedded_subtitle_stream.language.strip().lower()
+            if sub_lang not in ("und", "unknown", "none", "auto", ""):
+                return self.embedded_subtitle_stream.language
         if self.source_language and self.source_language.lower() not in ("auto", "none"):
             return self.source_language
         return self.detected_language

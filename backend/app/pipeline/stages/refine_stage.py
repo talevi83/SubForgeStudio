@@ -680,7 +680,7 @@ def classify_comms(segments: List[Dict[str, Any]]) -> int:
 # Timeline merge: spoken + on-screen
 # ---------------------------------------------------------------------------
 
-_MIN_STANDALONE_ONSCREEN = 1.0  # shortest on-screen caption worth showing on its own
+_MIN_STANDALONE_ONSCREEN = 3.0  # shortest on-screen caption worth showing on its own
 
 
 def _overlap(a: Dict[str, Any], b: Dict[str, Any]) -> float:
@@ -737,6 +737,7 @@ def merge_timeline(
         if not text:
             continue
         caption.setdefault("segment_type", SegmentType.ON_SCREEN.value)
+        caption["end_time"] = max(float(caption["end_time"]), round(float(caption["start_time"]) + _MIN_STANDALONE_ONSCREEN, 3))
         # Ensure consecutive ON_SCREEN captions don't collide with each other at the top
         if onscreen_clean:
             prev = onscreen_clean[-1]

@@ -225,6 +225,7 @@ class PipelineOrchestrator:
                 comms_boost=job.comms_boost,
                 high_speech_sensitivity=getattr(job, "high_speech_sensitivity", False),
                 use_embedded_subtitles=getattr(job, "use_embedded_subtitles", True),
+                selected_subtitle_stream=getattr(job, "selected_subtitle_stream", None),
                 detect_onscreen_text=job.detect_onscreen_text,
                 onscreen_sensitivity=getattr(job, "onscreen_sensitivity", 2),
                 allow_onscreen_overlap=getattr(job, "allow_onscreen_overlap", True),

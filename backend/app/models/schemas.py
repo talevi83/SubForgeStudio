@@ -58,6 +58,7 @@ class JobConfig(BaseModel):
     comms_boost: bool = False
     high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
+    selected_subtitle_stream: Optional[int] = None
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
     allow_onscreen_overlap: bool = True
@@ -140,6 +141,13 @@ class GlossaryUpdate(BaseModel):
     register_notes: str = ""
     # Name of a series profile to save this glossary to and use from now on; "" detaches the job
     profile: Optional[str] = None
+
+
+class JobSettingsUpdate(BaseModel):
+    onscreen_position: Optional[str] = Field(
+        default=None,
+        description="Position for on-screen/bracketed subtitles: top_center, middle_right, middle_left, top_right, top_left",
+    )
 
 
 class SubtitleSegmentSchema(BaseModel):
@@ -248,6 +256,7 @@ class JobResponse(BaseModel):
     comms_boost: bool = False
     high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
+    selected_subtitle_stream: Optional[int] = None
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = Field(default=2, ge=1, le=3)
     allow_onscreen_overlap: bool = True

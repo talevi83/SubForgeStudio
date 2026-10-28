@@ -12,7 +12,16 @@ LANGUAGE_NAMES = {
 }
 
 _NAME_TO_CODE = {name.lower(): code for code, name in LANGUAGE_NAMES.items()}
-_NAME_TO_CODE.update({"עברית": "he", "hebrew (עברית)": "he", "farsi": "fa", "mandarin": "zh"})
+_NAME_TO_CODE.update({
+    "עברית": "he", "hebrew (עברית)": "he", "farsi": "fa", "mandarin": "zh",
+    # ISO 639-2/B and 639-2/T 3-letter codes commonly reported by ffprobe / MKV containers
+    "eng": "en", "heb": "he", "ara": "ar", "rus": "ru", "spa": "es", "fre": "fr", "fra": "fr",
+    "ger": "de", "deu": "de", "ita": "it", "por": "pt", "jpn": "ja", "zho": "zh", "chi": "zh",
+    "kor": "ko", "dut": "nl", "nld": "nl", "tur": "tr", "pol": "pl", "ukr": "uk", "gre": "el",
+    "ell": "el", "hin": "hi", "per": "fa", "fas": "fa", "swe": "sv", "dan": "da", "nor": "no",
+    "nob": "no", "nno": "no", "fin": "fi", "cze": "cs", "ces": "cs", "hun": "hu", "rum": "ro",
+    "ron": "ro", "tha": "th", "vie": "vi", "ind": "id", "yid": "yi", "urd": "ur",
+})
 
 RTL_CODES = {"he", "ar", "fa", "ur", "yi"}
 
