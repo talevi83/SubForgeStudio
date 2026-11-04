@@ -10,6 +10,7 @@ import { useCostEstimate } from '../../hooks/useCostEstimate';
 import { SOURCE_LANGUAGES, TARGET_LANGUAGES, sameLanguage } from './languages';
 import { thinkingLabel, modelLabel } from '../settings/labels';
 import { SyncOptions } from './SyncOptions';
+import { GenrePresets } from './GenrePresets';
 import { AlertTriangle, Sparkles, Settings, Mic, Key, Play, Loader2, FileText, Coins, Users } from 'lucide-react';
 
 /** Accessible on/off switch with a title and a one-line description. */
@@ -136,6 +137,12 @@ export const PipelineConfig: React.FC = () => {
         </h2>
         <span className="text-xs text-zinc-400">{t('config.subtitle')}</span>
       </div>
+
+      <GenrePresets
+        pipelineConfig={pipelineConfig}
+        whisperModels={whisperModels}
+        onApply={updatePipelineConfig}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Whisper */}
