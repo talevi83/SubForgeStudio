@@ -27,29 +27,35 @@
 
 ## 🌟 Key Features
 
-1. **Zero-Copy Local Ingest & Stream Discovery:**
+1. **Zero-Copy Local Ingest, Stream Discovery & Embedded Subtitle Extraction:**
    - Ingest multi-gigabyte files (MKV, MP4, AVI, WebM) directly from disk paths without duplicating files.
-   - Discovers all video and audio tracks via `ffprobe` and lets you select the exact audio stream to transcribe.
+   - Discovers all video, audio, and embedded subtitle tracks via `ffprobe` and lets you select the exact audio or text-based dialogue subtitle stream to use.
+   - **Use Embedded Subtitles Toggle (`use_embedded_subtitles`):** When the video has an embedded text-based dialogue track (e.g., SRT/ASS/WebVTT inside an MKV), SubForge extracts it directly for instant, studio-accurate timing without waiting for full Whisper transcription — or you can switch it off to force fresh Whisper transcription from the audio.
+   - **Supplement with Whisper (`supplement_with_whisper`):** Optionally run Whisper alongside embedded or synced subtitles (`pipeline/missing_speech.py`) to detect and recover spoken lines missing from the subtitle track (such as unsubtitled radio chatter, background remarks, or foreign phrases) without duplicating existing lines.
+   - **Smart Genre Presets (`GenrePresets`):** One-click preset selector at the top of the configuration panel (`🎬 Drama & Cinema`, `🔬 Documentary, Reality & Science`, `🚁 Action, Military & Tactical`, `🕵️ Thriller, Horror & Crime`, `🚀 Sci-Fi, Fantasy & Anime`, `⚡ Fast & Clean / Sitcom`) that automatically configures all Whisper, audio sensitivity, OCR, and translation settings for that genre, with live active-preset detection and a `Custom` badge when tweaked manually.
    - Browser uploads show progress, are de-duplicated (same name + size is reused), and are deleted together with their project.
 
-2. **Hardware-Accelerated Transcription:**
+2. **Hardware-Accelerated Transcription & High Speech Sensitivity:**
    - Powered by `faster-whisper` (CTranslate2) with automatic hardware detection (`CUDA FP16` on NVIDIA GPUs or `CPU INT8`).
    - Batched GPU inference (`WHISPER_BATCH_SIZE`) with automatic fallback to sequential decoding if VRAM runs out; `large-v3-turbo` available.
    - The model stays loaded between jobs; jobs queue for the GPU instead of loading two models at once.
    - Silero VAD, `condition_on_previous_text=False` and loop detection against hallucinated repetitions.
-   - Surround (5.1/7.1) tracks are downmixed with emphasis on the dialogue centre channel.
+   - **High Speech Sensitivity (`high_speech_sensitivity`):** Optional per-job toggle that relaxes VAD and decoding thresholds to catch quiet whispers, murmurs, and speech partially buried under loud music or sound effects.
+   - Surround (5.1/7.1) tracks are downmixed with emphasis on the dialogue centre channel (boosting center speech while attenuating LFE/surround noise).
    - Cancel really stops Whisper mid-file.
 
-3. **Broadcast-Grade Subtitle Refinement:**
+3. **Broadcast-Grade Subtitle Refinement, Speaker Split & SDH Cleaning:**
    - Re-segments Whisper's output by sentence: lines Whisper cut mid-sentence are re-joined, dangling one-word fragments are merged, and sentences from different Whisper segments are never glued together (avoids mixing speakers).
+   - **Multi-Speaker Turn Splitting & SDH Cleanup (`utils/speaker_split.py`):** Automatically detects and formats multi-speaker dialogue turns with standard dialogue dashes (`- ...`), and offers a **Clean Hearing-Impaired (SDH) Tags (`remove_sdh_speakers`)** toggle (in Settings and per job) that strips speaker labels (`JOHN:`, `[MAN]`) and sound-effect cues (`(sighs)`, `[door slams]`) from spoken dialogue while preserving genuine `[ON_SCREEN]` titles.
    - Long sentences are split at clause boundaries/pauses, max 42 characters per line and 2 lines per subtitle.
    - Timing pass: no overlaps, ≥2-frame gaps, display time extended toward a target reading speed (`TARGET_CPS`), short gaps closed to avoid flicker.
    - Reading speed (CPS) badges, plus an "Only problems" filter and segment tag filter in the editor.
 
-4. **Context-Aware Gemini Subtitle Translation (Batch 60 + Dynamic Glossary Pruning):**
-   - Default batch size of 60 lines (`GEMINI_BATCH_SIZE=60`) halves translation request roundtrips and cut repeated prompt/thinking token overhead by 50%.
+4. **Context-Aware Gemini Subtitle Translation (Batch 60 + Dynamic Glossary Pruning + Separate On-Screen Pass):**
+   - Default batch size of 60 lines (`GEMINI_BATCH_SIZE=60`) halves translation request roundtrips and cuts repeated prompt/thinking token overhead by 50%.
+   - **Dedicated On-Screen Translation Pass:** `[ON_SCREEN]` cues (burned-in signs, location chyrons, HUD telemetry, text messages) are translated in a separate pass with a dedicated sign/title prompt from spoken dialogue (`DIALOGUE` / `COMMS` / `FOREIGN`), preventing sign text and overlapping dialogue from contaminating or overwriting each other during translation.
    - One glossary pass over the whole transcript (characters, gender, terminology) feeds translation, with per-batch dynamic glossary pruning (main cast + characters and terms appearing in the active window) so prompts stay compact without mutating the saved glossary.
-   - **Metric System Conversion Toggle:** Optional setting to automatically convert imperial measurements (miles, feet, inches, lbs, Fahrenheit, gallons, acres) into natural, idiomatic metric equivalents (km, m, kg, Celsius, liters, dunams) with natural rounding while preserving figurative idioms.
+   - **Metric System Conversion Toggle (`convert_to_metric`):** Optional setting (in Settings and per job) to automatically convert imperial measurements (miles, feet, inches, lbs, Fahrenheit, gallons, acres) into natural, idiomatic metric equivalents (km, m, kg, Celsius, liters, dunams) with natural rounding while preserving figurative idioms.
    - Missing lines are retried individually; anything that still fails is **flagged**, never silently left in English. "Retranslate failed" / "Retranslate all" (or a different target language) without re-transcribing.
    - Subtitles are saved as soon as they're refined and after every translated batch — nothing is lost if translation fails.
 
@@ -61,26 +67,28 @@
    - Whisper runs with a permissive VAD, relaxed `no_speech`/`log_prob` thresholds and a tactical vocabulary prompt (`initial_prompt` + `hotwords`).
    - Radio-procedure lines ("Copy that, over.", "Do you copy?", "…come in.") are tagged `COMMS` and translated with authentic IDF radio phrasing ("רות", "עבור").
 
-7. **📺 On-Screen Text, GPU Frame Sampling & Custom Positioning:**
+7. **📺 On-Screen Text, Sensitivity Levels, GPU Frame Sampling & Live Positioning:**
    - Uses an embedded forced/"signs" text subtitle track when the file has one.
    - Otherwise samples video frames in the background while Whisper transcribes. Sampling is GPU-accelerated (`-hwaccel auto` via NVDEC/D3D11VA) and demuxes only keyframes (`-discard nokey`) on full episodes, completing 36-minute 1440p 60fps AV1/HEVC scans in ~29 seconds instead of 20+ minutes on CPU.
-   - Frames are prioritised at speech gaps and scene cuts, and asked Gemini Vision for narrative text only ("One week later...", "Damascus, Syria", HUD headers, plot-critical signs — not logos, credits or burned-in dialogue).
-   - Repeated detections are merged into one `[bracketed]` `ON_SCREEN` subtitle and woven into the timeline. Lone short words (HUD/radio callsigns like "EAGLE") are dropped, and signs returning within 3 minutes are not repeated.
-   - **Speech Overlap & Reading Time:** On-screen titles (chyrons, speaker roles/credentials) can appear concurrently with dialogue lines without clipping or delaying subsequent speech subtitles (`allow_overlap=True`). A minimum comfortable reading duration is computed based on character count.
-   - **Screen Position Selector:** Choose where on-screen translations appear (Top Center `\an8`, Center Right `\an6`, Center Left `\an4`, Top Right `\an9`, Top Left `\an7`) in Settings and Ingest, serialized with SubStation Alpha positioning tags in SRT and WebVTT cue settings.
+   - **3-Level On-Screen Sensitivity (`onscreen_sensitivity`):** Choose between **1 — Strict (Titles Only)** (major location/time cards, ~3s intervals, max 360 frames), **2 — Balanced** (narrative signs, chyrons, and important on-screen text, ~2s intervals, max 660 frames), or **3 — Broad / Maximum** (dense sampling every 1s up to 1,200 frames + scene cuts to catch brief text messages, handwritten notes, documents, and HUD details).
+   - Repeated detections are merged into one `[bracketed]` `ON_SCREEN` subtitle with stable appearance/disappearance boundaries and woven into the timeline. Lone short words (HUD/radio callsigns like "EAGLE") are dropped, and signs returning within 3 minutes are not repeated.
+   - **Speech Overlap & Comfortable Reading Time (`allow_onscreen_overlap`):** On-screen titles (chyrons, speaker roles/credentials) can appear concurrently with bottom dialogue lines (`allow_onscreen_overlap=True` by default) or be sequenced without overlap. On-screen cues enforce a minimum 3.0-second display duration (scaled up for longer text) so viewers can comfortably read both the sign and the dialogue.
+   - **Live Screen Position Selector (`onscreen_position`):** Choose where on-screen translations appear (`Top Center \an8`, `Center \an5`, `Center Right \an6`, `Center Left \an4`, `Top Right \an9`, `Top Left \an7`) in Settings, during Ingest, or **live inside the Studio editor toolbar** (`PATCH /api/jobs/{id}/settings`) without re-running the job. The HTML5 video player renders separate top/middle and bottom subtitle layers simultaneously, and exports serialize standard SubStation Alpha `{\anX}` tags in SRT and cue positioning in WebVTT.
    - **Speech in other languages** (e.g. Russian in an English episode): passages in another language are detected, sampled from the bottom third with GPU acceleration, and read from burned-in subtitles (or re-transcribed by Whisper).
 
-8. **Interactive Studio Workspace:**
-   - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), seek bar and fullscreen that keeps the subtitle overlay.
+8. **Interactive Studio Workspace & Project Management:**
+   - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), dual-layer subtitle overlay (simultaneous dialogue + positioned on-screen cues), seek bar, and fullscreen.
    - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `N` add a line at the playhead, `F` fullscreen.
-   - **Add & Delete lines by hand:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Start and end are typed in `HH:MM:SS,mmm` (or captured from the playhead). A delete trash button on each row allows removing unwanted lines with automatic renumbering of subsequent cues.
+   - **Add, Delete & Bulk-Delete lines:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Select individual rows, Shift-click a range, or use the **Select All checkbox** in the table header to bulk re-translate or bulk delete (`DELETE /api/jobs/{id}/segments`) selected subtitle rows with automatic renumbering.
+   - **Bulk Project Deletion & Clear All (Sidebar):** Select multiple projects in the sidebar or click **Clear All** to delete finished jobs, their cached audio/frames/logs, and their owned uploads in one action (`POST /api/jobs/bulk-delete`, `DELETE /api/jobs`).
    - **Filter by Tag & Problems:** Dedicated tag filter dropdown in the toolbar allows filtering to On-Screen (📺), Comms (📻), Foreign (🌐), or any tagged subtitle with real-time counts, plus instant filtering by clicking on row badges directly.
    - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
-9. **⏱ Sync Existing Subtitles:**
-   - Choose **Sync my subtitles** on the setup screen, pick the video and a subtitle file you already have (SRT, WebVTT or ASS, in any language and encoding: UTF-8/UTF-16/Windows-1255 Hebrew files are read correctly). The text is never changed, only the timing.
+9. **⏱ Sync Existing Subtitles (+ Optional Whisper Supplement):**
+   - Choose **Sync my subtitles** on the setup screen, pick the video and a subtitle file you already have (SRT, WebVTT or ASS, in any language and encoding: UTF-8/UTF-16/Windows-1255 Hebrew files are read correctly). The existing text is never changed, only the timing.
    - Matches speech rhythm (Silero VAD + Whisper word times), embedded/burned-in tracks, and Gemini translation anchors.
+   - Optionally enable **Supplement missing speech with Whisper** and **On-screen OCR** during sync so any untranscribed spoken lines or burned-in signs missing from your subtitle file are automatically transcribed, translated, and merged into the synced timeline.
 
 10. **💡 Cost-Saver Mode & Local AI Offloading (Optional Toggle):**
     - **One simple toggle** in Settings (`cost_saver_mode`, off by default to protect weak laptops).
@@ -106,6 +114,7 @@
 
 Open **Settings** (bottom of the sidebar):
 
+- **Google Gemini API Key (`ApiKeySection`)** — first-run onboarding modal when no API key is configured yet, plus a collapsible API key management panel at the top of Settings (`GET/PUT /api/settings/api-key`) that shows a masked preview (`AIza••••••••abcd`) and saves your key directly to `backend/.env` without restarting the server.
 - **Appearance** — interface language (Hebrew / English, with a full right-to-left layout in Hebrew) and dark / light theme. Saved per browser.
 - **AI models** — pick the Gemini model and thinking level separately for each step that calls Gemini: *Translation*, *Glossary pass* and *On-screen text (vision)*, plus the frame detail used for vision. Saved to `storage/settings.json` and used by every new job and retranslation.
   - Each list shows only the models that can do that step (vision needs image input). For translation, **Gemini 3.5 Flash-Lite** and **Gemini 3.1 Flash-Lite** are the budget choices: about 58% and 29% of the Flash cost for a translated episode (about 29% and 15% once the Flash promotion ends in January 2027), with weaker Hebrew quality (gender agreement, idioms), so check the result. With Flex on top they cost half again. Models Google retired are migrated automatically in saved settings.
@@ -168,8 +177,9 @@ SubsForge Studio/
 │   │   │   ├── sync_text.py    # Sync: line-to-speech anchors (local word matching, Gemini)
 │   │   │   ├── sync_burned.py  # Sync: burned-in subtitle detection (local frame analysis)
 │   │   │   ├── gap_recovery.py # Missed-speech recovery (Whisper without VAD over uncovered audio)
+│   │   │   ├── missing_speech.py      # Supplement embedded/synced subtitles with Whisper speech detection
 │   │   │   ├── word_snap.py    # Subtitle start alignment
-│   │   │   ├── onscreen_prefilter.py  # Local frame edge & dHash pre-filter
+│   │   │   ├── onscreen_prefilter.py  # Local frame edge & dHash pre-filter (with steady-state retention)
 │   │   │   ├── gender_pretag.py       # Local Ollama gender pre-tagging
 │   │   │   ├── glossary_pruner.py     # Dynamic glossary pruning per batch
 │   │   │   ├── speech_regions.py, retime.py   # Speech maps, "Re-check timing" and drag-to-reorder
@@ -177,12 +187,12 @@ SubsForge Studio/
 │   │   │   ├── speaker_detect.py, qa.py       # Gender detection from frames, quality check
 │   │   │   └── context.py                     # Job context passed between stages
 │   │   ├── providers/          # faster-whisper transcription; Gemini (+ Flex wrapper) and Noop translation
-│   │   └── utils/              # SRT/VTT formatter, subtitle file parser, RTL fixer, languages, text rules
+│   │   └── utils/              # SRT/VTT formatter, subtitle file parser, RTL fixer, speaker split/SDH cleaner, languages, text rules
 │   └── tests/                  # pytest suites
 ├── frontend/                   # React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand
 │   ├── vite.config.ts          # Build & dev proxy to the backend
 │   └── src/
-│       ├── components/         # ingest/, monitor/, studio/, settings/, layout/
+│       ├── components/         # ingest/ (incl. GenrePresets), monitor/, studio/, settings/, layout/
 │       ├── store/              # Zustand stores (jobs + WebSocket listener, settings, UI)
 │       ├── services/api.ts     # Typed REST client
 │       ├── hooks/              # Cost estimate
@@ -205,13 +215,13 @@ Interactive docs are at `http://localhost:8000/docs` while the server runs.
 
 | Area | Endpoints |
 |---|---|
-| System | `GET /api/system/info` (hardware, models), `GET /api/system/log` (server log) |
+| System | `GET /api/system/info` (hardware, models, masked API key), `GET /api/system/log` (server log) |
 | Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `GET /api/media/stream/{job_id}` (Range), `POST /api/media/parse-subtitles` (read a subtitle file to sync) |
-| Jobs | `POST/GET /api/jobs` (with `sync_cues` = a sync job), `GET/DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
-| Editing | `POST /api/jobs/{id}/segments` (add a line), `DELETE /api/jobs/{id}/segments/{segment_id}` (delete a line), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
+| Jobs | `POST/GET /api/jobs` (with `sync_cues` = a sync job), `GET/DELETE /api/jobs/{id}`, `DELETE /api/jobs` (clear all), `POST /api/jobs/bulk-delete`, `PATCH /api/jobs/{id}/settings` (live onscreen position), `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/translate` |
+| Editing | `POST /api/jobs/{id}/segments` (add a line), `DELETE /api/jobs/{id}/segments/{segment_id}` (delete a line), `DELETE /api/jobs/{id}/segments` (bulk delete lines), `PATCH /api/jobs/{id}/segments/{segment_id}`, `PATCH /api/jobs/{id}/segments` (bulk), `POST /api/jobs/{id}/segments/move`, `POST /api/jobs/{id}/retime` |
 | Translation tools | `PUT /api/jobs/{id}/glossary`, `POST /api/jobs/{id}/detect-speakers`, `GET /api/jobs/{id}/qa`, `GET /api/glossary-profiles` |
 | Export | `GET /api/jobs/{id}/export/srt`, `GET /api/jobs/{id}/export/vtt`, `GET /api/jobs/{id}/export/log` |
-| Settings | `GET/PUT /api/settings`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
+| Settings | `GET/PUT /api/settings`, `GET/PUT /api/settings/api-key`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
 | Storage | `GET /api/storage`, `POST /api/storage/clean` |
 | Live | `WS /ws/jobs/{job_id}` |
 
@@ -264,8 +274,12 @@ Optional settings (defaults shown):
 | `GEMINI_BATCH_SIZE` | `60` | Subtitle lines per translation request. |
 | `GEMINI_GLOSSARY_PASS` | `true` | Build a character/terminology glossary before translating. |
 | `COST_SAVER_MODE` | `false` | Enable local frame pre-filtering, Whisper VRAM unloading, and local Ollama pre-tagging. |
+| `ALLOW_ONSCREEN_OVERLAP` | `true` | Allow on-screen OCR titles to display concurrently with dialogue subtitles. |
+| `ONSCREEN_POSITION` | `top_center` | Default screen position for on-screen OCR text (`top_center`, `middle_center`, `middle_right`, `middle_left`, `top_right`, `top_left`). |
+| `CONVERT_TO_METRIC` | `false` | Convert non-metric units (miles, feet, pounds, Fahrenheit, etc.) to metric equivalents during translation. |
+| `REMOVE_SDH_SPEAKERS` | `false` | Strip hearing-impaired speaker labels (`JOHN:`) and sound cues (`[sighs]`) from dialogue while keeping `[ON_SCREEN]` titles. |
 | `GEMINI_VISION_MODEL` | `gemini-3.5-flash-lite` | Initial model that reads on-screen text from frames. |
-| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `360` | Frame sampling interval (s) and max frames sent to Gemini. Frame extraction uses GPU acceleration (`-hwaccel auto`). |
+| `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `660` | Frame sampling interval (s) and max frames sent to Gemini (scaled per sensitivity level 1–3). Frame extraction uses GPU acceleration (`-hwaccel auto`). |
 | `ONSCREEN_BATCH_SIZE` | `12` | Frames per Gemini Vision request. |
 | `MAX_CHARS_PER_LINE` | `42` | Line length limit for refinement and export. |
 | `TARGET_CPS` / `MAX_CPS_WARNING` | `17` / `20` | Reading speed the timing pass aims for / when the editor flags a line. |
@@ -395,3 +409,7 @@ The test suite covers:
 - **`test_desktop_launcher.py`**: the exe's window mode with pywebview faked: loading screen, persistent storage and downloads, closing with running projects, tray quit/restart, second launch, fullscreen bridge.
 - **`test_insert_segment.py`**: adding a line by hand: renumbering, overlap rejection naming the line, invalid times and text, clamping to the video end, running jobs.
 - **`test_sync.py`**: subtitle file parsing (formats, encodings, positions, language), alignment (delay, frame rate, cuts, wrong anchors), word and Gemini matching (fake client), burned-in detection, and sync jobs end to end through the API (same language, Hebrew with Gemini, burned-in subtitles).
+- **`test_embedded_subtitles.py`**: embedded text subtitle stream discovery, direct FFmpeg extraction vs. Whisper fallback when `use_embedded_subtitles` is toggled off.
+- **`test_missing_speech.py`**: supplementing embedded or synced subtitles with Whisper speech detection (`supplement_with_whisper`), coverage overlap checks, and hallucination filtering.
+- **`test_speaker_split.py`**: multi-speaker turn splitting (`- ...`), hearing-impaired SDH speaker tag and sound-effect removal (`remove_sdh_speakers`), while preserving `[ON_SCREEN]` titles.
+- **`test_finops_optimizations.py`**: local frame edge & dHash pre-filtering (including steady-state retention), dynamic glossary pruning, and local Ollama gender pre-tagging.
