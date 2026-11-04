@@ -154,6 +154,9 @@ export const he: Messages = {
       'חילוץ ישיר של הכתוביות המוטמעות בקובץ הווידאו (כולל שפות זרות). כבה אפשרות זו כדי להתעלם מהן ולתמלל מחדש את הדיבור עם Whisper.',
     selectEmbeddedTrack: 'ערוץ כתוביות מוטמע לחילוץ',
     embeddedAutoTrack: 'בחירה אוטומטית ({name})',
+    supplementWithWhisperTitle: 'השלמת דיבור חסר באמצעות Whisper',
+    supplementWithWhisperDesc:
+      'הפעלת תמלול Whisper במקביל לבדיקת פערים והשלמת דיבור בקשר או מלל שנשמט (ללא כפילויות).',
     onscreenNeedsKey: 'סריקת פריימים דורשת מפתח Gemini.',
     onscreenSensitivityLabel: 'רגישות קריאת טקסט מהמסך',
     onscreenSensitivityStrict: 'קפדני (כותרות בלבד)',
@@ -171,6 +174,9 @@ export const he: Messages = {
     onscreenPositionLabel: 'מיקום על המסך',
     metricTitle: 'המרה לשיטה המטרית',
     metricDescription: 'ממיר מיילים, רגל, פאונד, פרנהייט וכו׳ לק״מ, מטרים, ק״ג וצלזיוס.',
+    removeSdhSpeakersTitle: 'הסרת שמות דוברים (כתוביות SDH)',
+    removeSdhSpeakersDescription:
+      'מסיר שמות דוברים בסוגריים מרובעות [שם] או שם: שמיועדים לכבדי שמיעה, אך שומר על כתוביות מסך (זמן, מקום וכותרות). שם הדובר עדיין משמש לקביעת לשון זכר/נקבה בתרגום.',
     highSpeechSensitivityTitle: 'רגישות דיבור גבוהה (תפיסת לחישות)',
     highSpeechSensitivityDesc:
       'מרכך את סינון השקט כדי לתפוס לחישות, דיבור חלש או משפטים שנבלעים במוזיקת רקע חזקה.',
@@ -192,6 +198,9 @@ export const he: Messages = {
     syncOnscreenTitle: 'תזמון כיתובים ושלטים',
     syncOnscreenDescription:
       'סורק את הווידאו לטקסט על המסך (כותרות מקום וזמן, שלטים) עם Gemini Vision, כדי שהשורות האלה יופיעו בדיוק עם הטקסט.',
+    syncSupplementTitle: 'השלמת דיבור חסר באמצעות Whisper',
+    syncSupplementDesc:
+      'איתור קטעי דיבור או קשר באודיו שחסרים בקובץ הכתוביות והוספתם לציר הזמן המסונכרן.',
     syncNeedFile: 'קודם בחר את קובץ הכתוביות לסנכרון.',
     launchSync: 'סנכרן כתוביות',
   },
@@ -268,6 +277,9 @@ export const he: Messages = {
   },
   table: {
     search: 'חיפוש בטקסט...',
+    searchRegex: 'חיפוש בביטוי רגולרי (לדוגמה \\b\\w+)...',
+    regexToggle: 'חיפוש באמצעות ביטוי רגולרי (Alt+R)',
+    invalidRegex: 'ביטוי רגולרי לא תקין',
     replace: 'החלף ב...',
     inTranslated: 'בתרגום',
     inOriginal: 'במקור',
@@ -591,6 +603,11 @@ export const he: Messages = {
       label: 'המרה לשיטה המטרית (יחידות מידה, מרחקים ומשקלים)',
       description:
         'ממיר באופן טבעי יחידות אימפריאליות (מיילים, רגל/פיט, אינצ׳ים, יארדים, פאונד, מעלות פרנהייט, גלונים, אקרים) ליחידות מטריות מקובלות (ק״מ, מטרים, ס״מ, ק״ג, צלזיוס, ליטרים, דונם) עם עיגול נוח לקריאה שוטפת.',
+    },
+    removeSdhSpeakers: {
+      label: 'הסרת שמות דוברים (כתוביות SDH)',
+      description:
+        'מסיר באופן אוטומטי שמות ותוויות דוברים בסוגריים מרובעות ([שם] או שם:) מדיאלוגים, תוך שמירה על כתוביות מסך וציוני זמן. שמות הדוברים עדיין משמשים להבנת המגדר (זכר/נקבה) בתרגום.',
     },
     help: {
       title: 'מדריך הפעלה ושאלות נפוצות (Q&A)',

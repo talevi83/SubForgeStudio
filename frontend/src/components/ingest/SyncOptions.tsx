@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Key, Link2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Key, Link2, Mic, Sparkles } from 'lucide-react';
 import { useJobStore } from '../../store/useJobStore';
 import { useUiStore } from '../../store/useUiStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -103,6 +103,27 @@ export const SyncOptions: React.FC = () => {
             )}
           </>
         )}
+      </div>
+
+      <div className="p-2.5 rounded-lg bg-surface border border-line space-y-2 text-xs">
+        <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 text-zinc-200 font-medium">
+              <Mic className="w-3.5 h-3.5 text-indigo-400" />
+              {t('config.syncSupplementTitle')}
+            </span>
+            <span className="block text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+              {t('config.syncSupplementDesc')}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={pipelineConfig.supplement_with_whisper ?? false}
+            onChange={(e) => updatePipelineConfig({ supplement_with_whisper: e.target.checked })}
+            data-testid="sync-supplement-whisper"
+            className="mt-0.5 w-4 h-4 rounded border-zinc-700 text-indigo-600 focus:ring-indigo-500 bg-zinc-800 cursor-pointer"
+          />
+        </label>
       </div>
     </div>
   );

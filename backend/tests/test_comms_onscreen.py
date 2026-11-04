@@ -241,6 +241,22 @@ def test_clean_embedded_dialogue_inline_whispering():
     assert clean_embedded_dialogue_text("[whispering] Run!", is_sdh=True) == "Run!"
     assert clean_embedded_dialogue_text("(whispers) Take cover.") == "Take cover."
     assert clean_embedded_dialogue_text("(whispering)") == ""  # pure sound cue dropped
+    # Title-case SDH speaker labels like [Travis] are stripped, and lines ending in [gasps] are not dropped
+    assert clean_embedded_dialogue_text("[Travis] What was that sound? [gasps]", is_sdh=True) == "What was that sound?"
+    assert clean_embedded_dialogue_text("[Thomas] Let's get this drill into position.") == "Let's get this drill into position."
+
+
+def test_merge_timeline_snaps_onscreen_chyron_to_dialogue_and_extends_short_chyron():
+    spoken = [
+        _spoken(1, 113.57, 116.87, "help us run a multi-device\nlidar scanning experiment"),
+        _spoken(2, 117.03, 119.87, "as we were drilling\na vertical borehole in the mesa."),
+    ]
+    onscreen = [_onscreen(114.0, 117.0, "[TRAVIS TAYLOR, PH.D. — ASTROPHYSICIST]")]
+    merged = merge_timeline(spoken, onscreen, allow_overlap=True)
+    os_seg = next(s for s in merged if s["segment_type"] == "ON_SCREEN")
+    # Snaps start to first overlapping cue (113.57) and extends across chained second cue (119.87)
+    assert os_seg["start_time"] == 113.57
+    assert os_seg["end_time"] == 119.87
 
 
 def test_select_frames_prefers_gaps_and_cuts_and_skips_static_repeats():

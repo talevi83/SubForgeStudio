@@ -567,6 +567,50 @@ export const SettingsScreen: React.FC = () => {
 
             <div
               className={`rounded-xl border transition-colors ${
+                draft.remove_sdh_speakers
+                  ? 'bg-indigo-500/10 border-indigo-500/40'
+                  : 'bg-sunken border-line hover:border-zinc-600'
+              }`}
+            >
+              <label
+                className="flex items-start gap-3 p-4 cursor-pointer"
+                data-testid="remove-sdh-speakers-toggle"
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold text-zinc-100 flex items-center gap-1.5">
+                    <span>🔇</span>
+                    <span>{t('settings.removeSdhSpeakers.label')}</span>
+                  </span>
+                  <span className="block text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                    {t('settings.removeSdhSpeakers.description')}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  data-testid="remove-sdh-speakers-switch"
+                  aria-checked={!!draft.remove_sdh_speakers}
+                  checked={!!draft.remove_sdh_speakers}
+                  onChange={(e) => setDraft({ ...draft, remove_sdh_speakers: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <span
+                  className={`relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 ${
+                    draft.remove_sdh_speakers ? 'bg-indigo-600' : 'bg-zinc-700'
+                  }`}
+                  aria-hidden
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                      draft.remove_sdh_speakers ? 'start-4.5' : 'start-0.5'
+                    }`}
+                  />
+                </span>
+              </label>
+            </div>
+
+            <div
+              className={`rounded-xl border transition-colors ${
                 draft.cost_saver_mode
                   ? 'bg-emerald-500/10 border-emerald-500/40'
                   : 'bg-sunken border-line hover:border-zinc-600'

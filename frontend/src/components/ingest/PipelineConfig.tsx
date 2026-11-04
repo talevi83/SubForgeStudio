@@ -289,6 +289,21 @@ export const PipelineConfig: React.FC = () => {
                         </select>
                       </div>
                     )}
+
+                    <label className="flex items-start justify-between gap-3 pt-2 border-t border-emerald-500/20 cursor-pointer select-none">
+                      <span className="space-y-0.5">
+                        <span className="block font-semibold text-zinc-200">{t('config.supplementWithWhisperTitle')}</span>
+                        <span className="block text-zinc-400 text-[10px] leading-relaxed">
+                          {t('config.supplementWithWhisperDesc')}
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={pipelineConfig.supplement_with_whisper ?? false}
+                        onChange={(e) => updatePipelineConfig({ supplement_with_whisper: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded border-zinc-700 text-emerald-600 focus:ring-emerald-500 bg-zinc-800 cursor-pointer"
+                      />
+                    </label>
                   </div>
                 ) : (
                   <p className="pt-2 border-t border-line text-amber-300/90 font-medium">
@@ -448,6 +463,24 @@ export const PipelineConfig: React.FC = () => {
                   </span>
                   <span className="text-zinc-400 text-[11px] leading-relaxed block">
                     {t('config.metricDescription')}
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 pt-2.5 border-t border-line/40 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={pipelineConfig.remove_sdh_speakers ?? false}
+                  onChange={(e) => updatePipelineConfig({ remove_sdh_speakers: e.target.checked })}
+                  className="mt-0.5 rounded border-zinc-700 text-indigo-500 focus:ring-indigo-400 bg-zinc-800 cursor-pointer"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-zinc-200 font-medium text-xs flex items-center gap-1.5">
+                    <span>🔇</span>
+                    <span>{t('config.removeSdhSpeakersTitle')}</span>
+                  </span>
+                  <span className="text-zinc-400 text-[11px] leading-relaxed block">
+                    {t('config.removeSdhSpeakersDescription')}
                   </span>
                 </div>
               </label>

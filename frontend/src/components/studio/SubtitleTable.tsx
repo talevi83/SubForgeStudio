@@ -7,7 +7,7 @@ import { RowTranslateDialog } from './RowTranslateDialog';
 import { InsertSegmentDialog } from './InsertSegmentDialog';
 import { findSegmentAt } from '../../utils/time';
 import { useT } from '../../i18n';
-import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag, Trash2 } from 'lucide-react';
+import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag, Trash2, Regex } from 'lucide-react';
 import { api } from '../../services/api';
 import type { QAIssue } from '../../types';
 
@@ -38,6 +38,7 @@ export const SubtitleTable: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
   const [targetColumn, setTargetColumn] = useState<'translated' | 'original'>('translated');
+  const [useRegex, setUseRegex] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [onlyProblems, setOnlyProblems] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>('ALL');
@@ -91,6 +92,21 @@ export const SubtitleTable: React.FC = () => {
     return { onscreen, comms, foreign, anyTagged };
   }, [segments]);
 
+  const { regex: searchRegex, error: regexError } = useMemo(() => {
+    if (!useRegex || !searchTerm) return { regex: null, error: null };
+    try {
+      const match = searchTerm.match(/^\/(.*)\/([a-z]*)$/s);
+      if (match) {
+        // Strip 'g' flag so RegExp.prototype.test() remains stateless across segments
+        const flags = match[2] ? match[2].replace(/g/g, '') : 'i';
+        return { regex: new RegExp(match[1], flags), error: null };
+      }
+      return { regex: new RegExp(searchTerm, 'i'), error: null };
+    } catch (err) {
+      return { regex: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [useRegex, searchTerm]);
+
   const filteredSegments = useMemo(() => {
     let list = segments;
     if (onlyProblems) list = list.filter(isProblem);
@@ -101,15 +117,22 @@ export const SubtitleTable: React.FC = () => {
         list = list.filter((s) => s.segment_type === tagFilter);
       }
     }
+    if (!searchTerm) return list;
+    if (useRegex) {
+      if (regexError || !searchRegex) return [];
+      return list.filter(
+        (s) => searchRegex.test(s.original_text) || (s.translated_text ? searchRegex.test(s.translated_text) : false)
+      );
+    }
     if (!searchTerm.trim()) return list;
     const term = searchTerm.toLowerCase();
     return list.filter(
       (s) => s.original_text.toLowerCase().includes(term) || s.translated_text?.toLowerCase().includes(term)
     );
-  }, [segments, searchTerm, onlyProblems, isProblem, tagFilter]);
+  }, [segments, searchTerm, useRegex, searchRegex, regexError, onlyProblems, isProblem, tagFilter]);
 
   // Moving rows only makes sense in the full, time-ordered list of a finished job
-  const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm.trim() && !onlyProblems && tagFilter === 'ALL' && !timingBusy;
+  const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm && !onlyProblems && tagFilter === 'ALL' && !timingBusy;
   const canRecheck = !!activeJob && !isActiveStatus(activeJob.status) && segments.length > 0;
 
   const handleDragStart = useCallback((id: number) => setDragId(id), []);
@@ -231,10 +254,17 @@ export const SubtitleTable: React.FC = () => {
   };
 
   const handleReplaceAll = async () => {
-    if (!searchTerm.trim()) return;
-    const n = await replaceAll(searchTerm, replaceTerm, targetColumn);
+    if (!searchTerm.trim() || (useRegex && !!regexError)) return;
+    const n = await replaceAll(searchTerm, replaceTerm, targetColumn, useRegex);
     setReplaceResult(n ? t('table.replaced', { count: n }) : t('table.noMatches'));
     setTimeout(() => setReplaceResult(null), 3000);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.altKey && e.key.toLowerCase() === 'r') {
+      e.preventDefault();
+      setUseRegex((v) => !v);
+    }
   };
 
   const onSelect = useCallback(
@@ -274,18 +304,37 @@ export const SubtitleTable: React.FC = () => {
       <div className="p-3 bg-sunken border-b border-line space-y-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <Search className="w-3.5 h-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
             <input
               type="text"
-              placeholder={t('table.search')}
+              placeholder={useRegex ? t('table.searchRegex') : t('table.search')}
               dir="auto"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-surface border border-line rounded-lg ps-8 pe-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+              onKeyDown={handleSearchKeyDown}
+              className={`w-full bg-surface border rounded-lg ps-8 pe-8 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none transition-colors ${
+                useRegex && regexError
+                  ? 'border-rose-500/80 focus:border-rose-500 text-rose-200'
+                  : 'border-line focus:border-indigo-500'
+              }`}
             />
+            <button
+              type="button"
+              onClick={() => setUseRegex((v) => !v)}
+              title={t('table.regexToggle')}
+              aria-label={t('table.regexToggle')}
+              aria-pressed={useRegex}
+              className={`absolute end-1.5 top-1/2 -translate-y-1/2 p-1 rounded transition-colors cursor-pointer flex items-center justify-center ${
+                useRegex
+                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 hover:bg-indigo-600/40'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
+              }`}
+            >
+              <Regex className="w-3.5 h-3.5" />
+            </button>
           </div>
           <div className="relative flex-1">
-            <Replace className="w-3.5 h-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <Replace className="w-3.5 h-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
             <input
               type="text"
               placeholder={t('table.replace')}
@@ -305,7 +354,7 @@ export const SubtitleTable: React.FC = () => {
           </select>
           <button
             onClick={handleReplaceAll}
-            disabled={!searchTerm.trim() || isLive}
+            disabled={!searchTerm.trim() || (useRegex && !!regexError) || isLive}
             className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
           >
             {t('table.replaceAll')}
@@ -315,7 +364,12 @@ export const SubtitleTable: React.FC = () => {
         <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
           <div className="flex items-center gap-3">
             <span>
-              {replaceResult ? (
+              {useRegex && regexError ? (
+                <span className="text-rose-400 font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 inline" />
+                  {t('table.invalidRegex')}: {regexError}
+                </span>
+              ) : replaceResult ? (
                 <span className="text-indigo-300">{replaceResult}</span>
               ) : (
                 <>

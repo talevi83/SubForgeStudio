@@ -185,6 +185,18 @@ class SyncStage(PipelineStage):
             max_chars_per_line=settings.max_chars_per_line,
             min_gap=CUE_GAP,
         )
+        if ctx.supplement_with_whisper and ctx.raw_segments:
+            from app.pipeline.missing_speech import supplement_missing_speech
+            segments, recovered_count = supplement_missing_speech(
+                segments,
+                ctx.raw_segments,
+                same_language=same_language,
+                min_gap=CUE_GAP,
+                max_chars_per_line=settings.max_chars_per_line,
+            )
+            report["supplemented_count"] = recovered_count
+            if recovered_count > 0:
+                logger.info(f"SyncStage: recovered {recovered_count} missing speech segments from Whisper.")
         report["methods"] = methods
         ctx.refined_segments = segments
         ctx.sync_report = report

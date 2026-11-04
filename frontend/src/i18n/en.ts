@@ -152,6 +152,9 @@ export const en = {
       'Extract embedded subtitles directly from the video file (including foreign languages). Turn off to ignore embedded tracks and transcribe with Whisper instead.',
     selectEmbeddedTrack: 'Embedded subtitle track to extract',
     embeddedAutoTrack: 'Auto-select best track ({name})',
+    supplementWithWhisperTitle: 'Supplement Missing Speech with Whisper',
+    supplementWithWhisperDesc:
+      'Run Whisper speech-to-text in parallel to detect and recover dialogue, radio/comms chatter, or lines missed by existing subtitles (zero duplication).',
     onscreenNeedsKey: 'Frame scanning needs a Gemini API key.',
     onscreenSensitivityLabel: 'On-Screen Text Sensitivity',
     onscreenSensitivityStrict: 'Strict (Titles & Chyrons)',
@@ -169,6 +172,9 @@ export const en = {
     onscreenPositionLabel: 'Screen position',
     metricTitle: 'Convert to Metric System',
     metricDescription: 'Converts miles, feet, pounds, Fahrenheit etc. to km, meters, kg, and Celsius.',
+    removeSdhSpeakersTitle: 'Remove Speaker Names (SDH Subtitles)',
+    removeSdhSpeakersDescription:
+      'Strips hearing-impaired speaker labels ([Name] or Name:) while preserving on-screen titles (time, location, chyrons). Speaker names are still used to determine gender in translation.',
     highSpeechSensitivityTitle: 'High Speech Sensitivity (Catch Whispers)',
     highSpeechSensitivityDesc:
       'Relaxes voice activity thresholds to catch quiet whispers, rapid speech, and dialogue over loud background music.',
@@ -190,6 +196,9 @@ export const en = {
     syncOnscreenTitle: 'Time titles and signs',
     syncOnscreenDescription:
       'Scans the video for on-screen text (place and time titles, signs) with Gemini Vision, so those lines appear exactly with the text.',
+    syncSupplementTitle: 'Recover Missing Speech with Whisper',
+    syncSupplementDesc:
+      'Detect and recover un-subtitled dialogue or radio comms from audio gaps and insert them into the synced timeline.',
     syncNeedFile: 'Choose the subtitle file to sync first.',
     launchSync: 'Sync Subtitles',
   },
@@ -266,6 +275,9 @@ export const en = {
   },
   table: {
     search: 'Search subtitle text...',
+    searchRegex: 'Search with regex (e.g. \\b\\w+ed\\b)...',
+    regexToggle: 'Use Regular Expression (Alt+R)',
+    invalidRegex: 'Invalid regular expression',
     replace: 'Replace with...',
     inTranslated: 'In translated',
     inOriginal: 'In original',
@@ -591,6 +603,11 @@ export const en = {
       label: 'Convert Measurements to Metric System',
       description:
         'Automatically converts Imperial units (miles, feet, inches, yards, pounds, Fahrenheit, gallons, acres) into standard Metric units (km, meters, cm, kg, Celsius, liters, dunams) naturally rounded for subtitle readability.',
+    },
+    removeSdhSpeakers: {
+      label: 'Remove Speaker Names (SDH Subtitles)',
+      description:
+        'Automatically strips hearing-impaired speaker labels ([Name] or Name:) from dialogue while preserving on-screen titles and time jumps. Speaker names are still used to determine gender in translation.',
     },
     help: {
       title: 'Help, User Guide & Q&A',

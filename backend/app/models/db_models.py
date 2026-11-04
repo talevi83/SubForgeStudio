@@ -78,6 +78,8 @@ class Job(SQLModel, table=True):
     # Extract embedded text-based full dialogue subtitles instead of running Whisper
     use_embedded_subtitles: bool = Field(default=True)
     selected_subtitle_stream: Optional[int] = Field(default=None)
+    # Transcribe with Whisper alongside existing/embedded subtitles to detect and supplement missing speech
+    supplement_with_whisper: bool = Field(default=False)
     # Forced subtitle tracks + Gemini Vision scan for burned-in narrative text
     detect_onscreen_text: bool = Field(default=False)
     # On-screen text sensitivity: 1=Strict, 2=Balanced, 3=Broad
@@ -88,6 +90,8 @@ class Job(SQLModel, table=True):
     onscreen_position: str = Field(default="top_center")
     # Convert non-metric units to metric system
     convert_to_metric: bool = Field(default=False)
+    # Remove hearing-impaired SDH speaker tags/brackets in dialogue while preserving on-screen titles
+    remove_sdh_speakers: bool = Field(default=False)
     enable_translation: bool = Field(default=False)
     target_language: str = Field(default="Hebrew")
     gemini_model: str = Field(default="gemini-3.8-flash")
@@ -113,6 +117,8 @@ class Job(SQLModel, table=True):
     @property
     def effective_source_language(self) -> Optional[str]:
         """The language actually spoken: explicit choice, else what Whisper detected."""
+        from app.utils.languages import language_code
+
         if self.source_language and self.source_language.lower() not in ("auto", "none"):
-            return self.source_language
-        return self.detected_language
+            return language_code(self.source_language) or self.source_language
+        return language_code(self.detected_language) or self.detected_language

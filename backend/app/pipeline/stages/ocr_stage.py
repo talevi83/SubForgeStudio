@@ -79,7 +79,7 @@ _SDH_SOUND_EFFECT = re.compile(
 )
 _SDH_INLINE_SOUND = re.compile(r"\[[a-zA-Z\s_-]{2,35}\]|\([a-zA-Z\s_-]{2,35}\)")
 _SDH_SPEAKER_LABEL = re.compile(
-    r"^(\s*[-–—]?\s*)\[([A-Z0-9\s._'-]{2,25})\]\s+(?=\S)",
+    r"^(\s*[-–—]?\s*)\[([a-zA-Z0-9\s._'-]{2,25})\]\s*:?\s*(?=\S)",
 )
 
 
@@ -96,10 +96,23 @@ def clean_embedded_dialogue_text(text: str, is_sdh: bool = False) -> str:
         stripped_notes = l.strip("♪♫#*~ \t")
         if not stripped_notes:
             continue
-        # Drop pure bracketed/parenthesized sound descriptions
+        # Drop pure single bracketed/parenthesized sound descriptions (never drop "[Speaker] text [sound]")
         if (l.startswith("(") and l.endswith(")")) or (is_sdh and l.startswith("[") and l.endswith("]")):
             inner = l[1:-1].strip()
-            if any(k in inner.lower() for k in ("music", "sound", "applause", "groan", "sigh", "pant", "gasp", "chatter", "cough", "cheer", "laugh", "stammer", "whisper")):
+            if (
+                "[" not in inner
+                and "]" not in inner
+                and "(" not in inner
+                and ")" not in inner
+                and len(inner.split()) <= 7
+                and any(
+                    k in inner.lower()
+                    for k in (
+                        "music", "sound", "applause", "groan", "sigh", "pant", "gasp",
+                        "chatter", "cough", "cheer", "laugh", "stammer", "whisper",
+                    )
+                )
+            ):
                 continue
         if is_sdh:
             l = _SDH_SOUND_EFFECT.sub("", l)
@@ -335,8 +348,9 @@ def make_onscreen_segment(
 class Frame:
     time: float
     path: Path
-    change: float = 0.0       # difference from the previous sampled frame (0..1)
-    static_until: float = 0.0  # the picture stays the same until this time
+    change: float = 0.0                    # difference from the previous sampled frame (0..1)
+    static_until: float = 0.0              # the picture stays the same until this time
+    overlay_change: Optional[float] = None  # change in chyron/title bands or scene cut
 
 
 @dataclass
@@ -404,22 +418,30 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
     thumbs = thumbs_path.read_bytes() if thumbs_path.exists() else b""
     size = _THUMB_W * _THUMB_H
     top_k = max(1, size // 20)  # ~5% of frame area (catches lower-third chyron / title overlays)
+    chyron_start = 12 * _THUMB_W
+    chyron_end = 16 * _THUMB_W
+    chyron_len = max(1, chyron_end - chyron_start)
     frames: List[Frame] = []
     prev: Optional[bytes] = None
     for i, jpg in enumerate(jpgs):
         thumb = thumbs[i * size:(i + 1) * size]
         if prev is None or len(thumb) < size:
             change = 1.0
+            overlay_change = 1.0
         else:
-            diffs = [abs(a - b) for a, b in zip(thumb, prev)]
-            global_change = sum(diffs) / (size * 255)
-            diffs.sort(reverse=True)
+            raw_diffs = [abs(a - b) for a, b in zip(thumb, prev)]
+            global_change = sum(raw_diffs) / (size * 255)
+            chyron_band_change = sum(raw_diffs[chyron_start:chyron_end]) / (chyron_len * 255)
+            diffs = sorted(raw_diffs, reverse=True)
             top_zone_change = sum(diffs[:top_k]) / (top_k * 255)
             # A lower-third chyron or title overlay appearing over a static talking head changes
             # ~4-8% of the frame strongly while keeping global_change small; blending the top-5%
             # localized change ensures chyron fade-ins register above _SCENE_CHANGE (0.12).
             change = max(global_change, top_zone_change * 0.75)
-        frames.append(Frame(time=round(i * interval, 3), path=jpg, change=change))
+            # For static duration tracking, ignore mid-frame speaker head movement unless the
+            # whole shot cuts (global_change >= _SCENE_CHANGE) or the lower-third band changes.
+            overlay_change = global_change if global_change >= _SCENE_CHANGE else chyron_band_change
+        frames.append(Frame(time=round(i * interval, 3), path=jpg, change=change, overlay_change=overlay_change))
         prev = thumb if len(thumb) == size else prev
     _fill_static_runs(frames, interval)
     return frames
@@ -429,7 +451,8 @@ def _fill_static_runs(frames: List[Frame], interval: float) -> None:
     """For each frame, how long the picture or overlay stays on screen before a cut or graphic fade-out."""
     for i in range(len(frames) - 1, -1, -1):
         nxt = frames[i + 1] if i + 1 < len(frames) else None
-        if nxt is not None and nxt.change < _OVERLAY_CHANGE:
+        nxt_diff = (nxt.overlay_change if nxt.overlay_change is not None else nxt.change) if nxt is not None else 1.0
+        if nxt is not None and nxt_diff < _OVERLAY_CHANGE:
             frames[i].static_until = nxt.static_until
         else:
             frames[i].static_until = frames[i].time + interval * 0.5

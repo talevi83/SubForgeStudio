@@ -79,6 +79,41 @@ def compute_dhash(image_path: Path) -> int:
         return bits
 
 
+def compute_chyron_metrics(image_path: Path) -> tuple[float, int]:
+    """
+    Compute edge density and 64-bit dHash specifically on the lower-third chyron band
+    (62%..92% of frame height), so speaker head movement in the middle of the frame does
+    not split a stable chyron cluster and a chyron fade-in is never merged into a pre-chyron frame.
+    """
+    with Image.open(image_path) as img:
+        gray = img.convert("L")
+        w, h = gray.size
+        y0 = max(0, int(h * 0.62))
+        y1 = max(y0 + 1, int(h * 0.92))
+        band = gray.crop((0, y0, w, y1))
+        bw, bh = RESIZE_W, max(8, int(RESIZE_H * 0.30))
+        resized = band.resize((bw, bh), Image.Resampling.BILINEAR)
+        edges = resized.filter(ImageFilter.FIND_EDGES)
+        epixels = _pixels(edges)
+        total = bw * bh
+        high_contrast = 0
+        for y in range(1, bh - 1):
+            row_offset = y * bw
+            for x in range(1, bw - 1):
+                if epixels[row_offset + x] >= EDGE_CONTRAST_PIXEL_MIN:
+                    high_contrast += 1
+        density = high_contrast / max(1, total)
+
+        small = band.resize((9, 8), Image.Resampling.BILINEAR)
+        spixels = _pixels(small)
+        bits = 0
+        for row in range(8):
+            offset = row * 9
+            for col in range(8):
+                bits = (bits << 1) | (1 if spixels[offset + col] > spixels[offset + col + 1] else 0)
+        return density, bits
+
+
 def hamming_distance(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
@@ -92,7 +127,7 @@ def prefilter_frames_sync(
     Synchronous Pillow pass over `frames` (each having `.path`, `.time`, and optional `.static_until`).
     Returns merged `FrameCluster` items for frames that survive the edge density filter.
     """
-    surviving: List[tuple[Any, int, float]] = []
+    surviving: List[tuple[Any, int, float, float, int]] = []
     for f in frames:
         path = Path(getattr(f, "path", f))
         try:
@@ -100,34 +135,53 @@ def prefilter_frames_sync(
             if density < edge_threshold:
                 continue
             dhash = compute_dhash(path)
-            surviving.append((f, dhash, density))
+            c_density, c_dhash = compute_chyron_metrics(path)
+            surviving.append((f, dhash, density, c_density, c_dhash))
         except Exception as e:
             logger.debug(f"Could not pre-filter frame {path}: {e}")
             # Keep unreadable/mock frames so tests with synthetic dummy paths don't silently break
-            surviving.append((f, -1, 0.0))
+            surviving.append((f, -1, 0.0, 0.0, -1))
 
     clusters: List[FrameCluster] = []
     prev_hash: int | None = None
+    prev_c_hash: int | None = None
     best_density: float = 0.0
-    for f, dhash, density in surviving:
+    best_c_density: float = 0.0
+    for f, dhash, density, c_density, c_dhash in surviving:
         path = Path(getattr(f, "path", f))
         t_start = float(getattr(f, "time", 0.0))
         t_end = max(t_start, float(getattr(f, "static_until", t_start) or t_start))
         density_jump = best_density > 0 and abs(density - best_density) / best_density >= 0.18
-        if (
+        chyron_jump = abs(c_density - best_c_density) >= 0.012
+        same_chyron = (
+            prev_c_hash is not None
+            and prev_c_hash >= 0
+            and c_dhash >= 0
+            and c_density >= 0.015
+            and hamming_distance(prev_c_hash, c_dhash) <= 4
+            and not chyron_jump
+        )
+        global_dist = (
+            hamming_distance(prev_hash, dhash)
+            if (prev_hash is not None and prev_hash >= 0 and dhash >= 0)
+            else 999
+        )
+        can_merge = (
             clusters
-            and prev_hash is not None
-            and prev_hash >= 0
-            and dhash >= 0
-            and hamming_distance(prev_hash, dhash) <= max_hamming
-            and not density_jump
-        ):
+            and not chyron_jump
+            and (
+                (global_dist <= max_hamming and not density_jump)
+                or (same_chyron and global_dist <= max_hamming * 2)
+            )
+        )
+        if can_merge:
             clusters[-1].end_time = max(clusters[-1].end_time, t_end, t_start)
             # Prefer the frame with higher edge density so a fully-settled chyron/title
             # replaces an earlier pre-chyron or mid-animation frame in the same shot.
-            if density > best_density * 1.005:
+            if density > best_density * 1.005 or c_density > best_c_density + 0.004:
                 clusters[-1].representative_path = path
-                best_density = density
+                best_density = max(best_density, density)
+                best_c_density = max(best_c_density, c_density)
         else:
             clusters.append(
                 FrameCluster(
@@ -137,7 +191,9 @@ def prefilter_frames_sync(
                 )
             )
             prev_hash = dhash
+            prev_c_hash = c_dhash
             best_density = density
+            best_c_density = c_density
     return clusters
 
 

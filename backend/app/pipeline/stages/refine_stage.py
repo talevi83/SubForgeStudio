@@ -18,6 +18,7 @@ are far too short to read. This stage therefore:
 6. Re-times everything: no overlaps, a minimum gap of ~2 frames, display time extended
    toward the target reading speed, small gaps closed to avoid flicker.
 """
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -34,6 +35,8 @@ from app.utils.text_rules import (
     ends_clause,
     ends_sentence,
 )
+
+logger = logging.getLogger(__name__)
 
 # Pauses (seconds) that end a sentence even without punctuation
 _HARD_PAUSE = 1.2
@@ -745,8 +748,63 @@ def merge_timeline(
                 prev["end_time"] = max(prev["start_time"] + 0.5, round(caption["start_time"] - min_gap, 3))
         onscreen_clean.append(caption)
 
-    for caption in onscreen_clean:
+    for idx, caption in enumerate(onscreen_clean):
         if allow_overlap:
+            overlapping = [s for s in spoken_view if _overlap(s, caption) > 0]
+            if overlapping:
+                first_s = overlapping[0]
+                last_s = overlapping[-1]
+                min_allowed_start = (
+                    round(onscreen_clean[idx - 1]["end_time"] + min_gap, 3)
+                    if idx > 0
+                    else 0.0
+                )
+                max_allowed_end = (
+                    round(onscreen_clean[idx + 1]["start_time"] - min_gap, 3)
+                    if idx + 1 < len(onscreen_clean)
+                    else float("inf")
+                )
+                # Snap ON_SCREEN start to the overlapping spoken cue start when within frame-sampling jitter
+                if (
+                    abs(caption["start_time"] - first_s["start_time"]) <= 0.85
+                    and first_s["start_time"] >= min_allowed_start
+                    and caption["end_time"] - first_s["start_time"] >= _MIN_STANDALONE_ONSCREEN
+                ):
+                    caption["start_time"] = round(first_s["start_time"], 3)
+
+                # Align ON_SCREEN end with the overlapping spoken cue end so top & bottom don't flicker mid-line
+                if (
+                    caption["end_time"] < last_s["end_time"]
+                    and last_s["end_time"] - caption["end_time"] <= 2.2
+                    and last_s["end_time"] <= max_allowed_end
+                ):
+                    caption["end_time"] = round(last_s["end_time"], 3)
+                elif (
+                    abs(caption["end_time"] - last_s["end_time"]) <= 0.85
+                    and last_s["end_time"] - caption["start_time"] >= _MIN_STANDALONE_ONSCREEN
+                    and last_s["end_time"] <= max_allowed_end
+                ):
+                    caption["end_time"] = round(last_s["end_time"], 3)
+
+                # If a speaker chyron/title is still under 4.2s and the speaker immediately continues
+                # into the next chained dialogue cue, hold the chyron until the end of that next cue.
+                text_str = caption.get("original_text", "")
+                if (
+                    ("—" in text_str or len(text_str) >= 24)
+                    and caption["end_time"] - caption["start_time"] < 4.2
+                ):
+                    chained = [
+                        s for s in spoken_view
+                        if 0.0 <= s["start_time"] - caption["end_time"] <= 0.45
+                    ]
+                    if chained:
+                        next_s = chained[0]
+                        if (
+                            next_s["end_time"] - caption["start_time"] <= 6.5
+                            and next_s["end_time"] <= max_allowed_end
+                        ):
+                            caption["end_time"] = round(next_s["end_time"], 3)
+
             result.append(caption)
             continue
 
@@ -879,6 +937,17 @@ class RefineStage(PipelineStage):
                 }
                 for i, seg in enumerate(ctx.embedded_dialogue_segments)
             ]
+            if ctx.supplement_with_whisper and ctx.raw_segments:
+                from app.pipeline.missing_speech import supplement_missing_speech
+                spoken, recovered_count = supplement_missing_speech(
+                    spoken,
+                    ctx.raw_segments,
+                    same_language=True,
+                    min_gap=settings.min_gap_seconds,
+                    max_chars_per_line=settings.max_chars_per_line,
+                )
+                if recovered_count > 0:
+                    logger.info(f"RefineStage: recovered {recovered_count} missing speech segments from Whisper.")
         else:
             spoken = refine_raw_segments(
                 ctx.raw_segments,

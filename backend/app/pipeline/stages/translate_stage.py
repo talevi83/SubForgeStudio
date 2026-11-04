@@ -60,6 +60,7 @@ class TranslateStage(PipelineStage):
             glossary_flex=app_settings.glossary.flex,
             flex_state=ctx.flex_state,
             convert_to_metric=getattr(ctx, "convert_to_metric", False) or app_settings.convert_to_metric,
+            remove_sdh_speakers=getattr(ctx, "remove_sdh_speakers", False) or getattr(app_settings, "remove_sdh_speakers", False),
         )
 
     async def execute(
@@ -128,7 +129,13 @@ class TranslateStage(PipelineStage):
         source_lang = language_name(ctx.effective_source_language, default="the original language")
         target_lang = ctx.target_language
 
-        async def _on_batch_complete(batch: List[TranslatableSegment], progress_pct: float) -> None:
+        total_to_translate = max(1, len(to_translate))
+        completed_so_far = 0
+
+        async def _on_batch_complete(batch: List[TranslatableSegment], _stream_pct: float) -> None:
+            nonlocal completed_so_far
+            completed_so_far += len(batch)
+            overall_pct = min(100.0, round((completed_so_far / total_to_translate) * 100.0, 2))
             for b in batch:
                 seg = by_index.get(b.index)
                 if seg is None:
@@ -143,7 +150,7 @@ class TranslateStage(PipelineStage):
                 await self._on_batch_persist(batch)
             if on_progress:
                 await on_progress(
-                    10.0 + progress_pct * 0.9,
+                    10.0 + overall_pct * 0.9,
                     None,
                     None,
                     f"Translated batch up to #{batch[-1].index}",
@@ -215,16 +222,43 @@ class TranslateStage(PipelineStage):
             if on_progress:
                 await on_progress(10.0, None, None, f"Translating {len(to_translate)} segments to {target_lang}...", None)
 
-            await translator.translate_segments(
-                segments=to_translate,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                context_notes=effective_notes,
-                apply_rtl=False,  # stored clean; RTL marks are added at export time
-                on_batch_complete=_on_batch_complete,
-                glossary=ctx.glossary,
-                context_segments=all_segments,
-            )
+            spoken_to_translate = [s for s in to_translate if (s.segment_type or "DIALOGUE") != "ON_SCREEN"]
+            onscreen_to_translate = [s for s in to_translate if (s.segment_type or "DIALOGUE") == "ON_SCREEN"]
+            if spoken_to_translate and onscreen_to_translate:
+                # Translate continuous spoken dialogue first without interleaved ON_SCREEN titles
+                # interrupting multi-segment sentences, then translate ON_SCREEN titles with full context.
+                spoken_context = [s for s in all_segments if (s.segment_type or "DIALOGUE") != "ON_SCREEN"]
+                await translator.translate_segments(
+                    segments=spoken_to_translate,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    context_notes=effective_notes,
+                    apply_rtl=False,
+                    on_batch_complete=_on_batch_complete,
+                    glossary=ctx.glossary,
+                    context_segments=spoken_context,
+                )
+                await translator.translate_segments(
+                    segments=onscreen_to_translate,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    context_notes=effective_notes,
+                    apply_rtl=False,
+                    on_batch_complete=_on_batch_complete,
+                    glossary=ctx.glossary,
+                    context_segments=all_segments,
+                )
+            else:
+                await translator.translate_segments(
+                    segments=to_translate,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    context_notes=effective_notes,
+                    apply_rtl=False,  # stored clean; RTL marks are added at export time
+                    on_batch_complete=_on_batch_complete,
+                    glossary=ctx.glossary,
+                    context_segments=all_segments,
+                )
         except TranslationAborted as e:
             for b in to_translate:
                 if not b.translated_text:

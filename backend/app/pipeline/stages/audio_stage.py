@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 # downmix also mixes in LFE, surrounds and music, which hurts recognition, so favour FC.
 _DIALOGUE_DOWNMIX = "pan=mono|c0=0.707*FC+0.35*FL+0.35*FR"
 
-# "Tactical Comms Boost": isolate the speech band (180Hz-3.8kHz), strip radio static with
-# FFT denoising, tame PTT bursts with a compressor, then dynamically normalise so faint or
-# distorted radio chatter and whispers reach a level Whisper's VAD does not discard.
+# "Tactical Comms Boost": isolate the speech band (180Hz-5.5kHz so consonants remain crisp),
+# gently reduce background hiss with FFT denoising, tame PTT bursts with a compressor, then
+# dynamically normalise so faint radio chatter and whispers reach a level Whisper's VAD keeps.
 COMMS_AUDIO_FILTER = (
     "highpass=f=180,"
-    "lowpass=f=3800,"
-    "afftdn=nf=-25,"
+    "lowpass=f=5500,"
+    "afftdn=nf=-35,"
     "acompressor=threshold=-18dB:ratio=3:attack=5:release=50,"
     "dynaudnorm=f=150:g=15:p=0.92:m=10.0"
 )
@@ -184,20 +184,26 @@ class AudioExtractionStage(PipelineStage):
                         elif not ctx.detected_language or ctx.detected_language.lower() in ("auto", "none"):
                             ctx.detected_language = "en"
                         track_desc = f"'{track.title}'" if track.title else f"track #{track.index} ({track.language})"
-                        logger.info(
-                            f"Using embedded dialogue subtitle track #{track.index} "
-                            f"({track.title or track.language}, {len(dialogue_segs)} cues). "
-                            "Skipping audio extraction."
-                        )
-                        if on_progress:
-                            await on_progress(
-                                100.0,
-                                None,
-                                0.0,
-                                f"Extracted {len(dialogue_segs)} cues from embedded {track_desc} — audio extraction skipped",
-                                None,
+                        if not ctx.supplement_with_whisper:
+                            logger.info(
+                                f"Using embedded dialogue subtitle track #{track.index} "
+                                f"({track.title or track.language}, {len(dialogue_segs)} cues). "
+                                "Skipping audio extraction."
                             )
-                        return
+                            if on_progress:
+                                await on_progress(
+                                    100.0,
+                                    None,
+                                    0.0,
+                                    f"Extracted {len(dialogue_segs)} cues from embedded {track_desc} — audio extraction skipped",
+                                    None,
+                                )
+                            return
+                        else:
+                            logger.info(
+                                f"Extracted {len(dialogue_segs)} cues from embedded {track_desc}. "
+                                "Continuing audio extraction to run Whisper for missing speech recovery."
+                            )
                 except Exception as e:
                     logger.warning(f"Could not extract embedded dialogue track #{track.index}: {e}")
 

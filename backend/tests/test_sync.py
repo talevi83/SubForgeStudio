@@ -403,3 +403,36 @@ def test_sync_job_uses_burned_in_subtitles(tmp_path, monkeypatch):
     assert report["methods"].get("burned_in", 0) >= len(UTTERANCES) - 1
     for seg, ((a, b), _) in zip(done["segments"], shown):
         assert abs(seg["start_time"] - a) < 0.25 and abs(seg["end_time"] - b) < 0.3
+
+
+@pytest.mark.asyncio
+async def test_sync_stage_supplements_missing_speech():
+    from app.pipeline.stages.sync_stage import SyncStage
+    from app.pipeline.context import PipelineContext, RawSegment
+
+    stage = SyncStage()
+    ctx = PipelineContext(
+        job_id="test_sync_suppl",
+        video_path="dummy.mp4",
+        file_name="dummy.mp4",
+        duration=30.0,
+        source_language="en",
+        sync_cues=[
+            {"start": 1.0, "end": 4.0, "text": "First line.", "kind": "speech", "position": "bottom"},
+            {"start": 5.0, "end": 8.0, "text": "Second line.", "kind": "speech", "position": "bottom"},
+        ],
+        raw_segments=[
+            RawSegment(index=1, start_time=1.0, end_time=4.0, text="First line.", confidence=0.9, words=[]),
+            RawSegment(index=2, start_time=5.0, end_time=8.0, text="Second line.", confidence=0.9, words=[]),
+            # Missing line in gap at 12.0s
+            RawSegment(index=3, start_time=12.0, end_time=15.0, text="Radio check, copy that.", confidence=0.88, words=[]),
+        ],
+        supplement_with_whisper=True,
+    )
+
+    await stage.execute(ctx)
+    assert ctx.refined_segments is not None
+    assert len(ctx.refined_segments) == 3
+    assert ctx.sync_report.get("supplemented_count") == 1
+    assert "Radio check" in ctx.refined_segments[2]["original_text"]
+

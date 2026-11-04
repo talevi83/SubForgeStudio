@@ -122,11 +122,13 @@ export interface Job {
   high_speech_sensitivity?: boolean;
   use_embedded_subtitles?: boolean;
   selected_subtitle_stream?: number | null;
+  supplement_with_whisper?: boolean;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
   allow_onscreen_overlap?: boolean;
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
+  remove_sdh_speakers?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_model: string;
@@ -242,11 +244,13 @@ export interface JobConfig {
   high_speech_sensitivity?: boolean;
   use_embedded_subtitles?: boolean;
   selected_subtitle_stream?: number | null;
+  supplement_with_whisper?: boolean;
   detect_onscreen_text: boolean;
   onscreen_sensitivity?: number;
   allow_onscreen_overlap?: boolean;
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
+  remove_sdh_speakers?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_api_key_override?: string;
@@ -351,6 +355,7 @@ export interface AppSettings {
   vision_media_resolution: MediaResolution;
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
+  remove_sdh_speakers?: boolean;
   cost_saver_mode?: boolean;
 }
 

@@ -24,7 +24,7 @@ class TranscribeStage(PipelineStage):
         ctx: PipelineContext,
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
-        if ctx.embedded_dialogue_segments and self._transcriber is None:
+        if ctx.embedded_dialogue_segments and self._transcriber is None and not ctx.supplement_with_whisper:
             ctx.raw_segments = [
                 RawSegment(
                     index=seg["index"],

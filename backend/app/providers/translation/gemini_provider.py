@@ -110,6 +110,7 @@ def build_subtitle_system_prompt(
     max_chars_per_line: int = 42,
     glossary: Optional[Dict[str, Any]] = None,
     convert_to_metric: bool = False,
+    remove_sdh_speakers: bool = False,
 ) -> str:
     """Construct the system prompt engineered for cinema/broadcast subtitle translation."""
     extra_context = (
@@ -120,13 +121,14 @@ def build_subtitle_system_prompt(
     glossary_block = format_glossary(glossary)
     hebrew_rules = ""
     if target_lang.strip().lower() in ("hebrew", "he", "עברית"):
-        hebrew_rules = """
+        chyron_sdh_note = " (Note: Do not confuse on-screen chyrons with SDH speaker labels in dialogue like `[John] Hello` when SDH stripping is enabled)" if remove_sdh_speakers else ""
+        hebrew_rules = f"""
 6. **Natural Spoken Hebrew & Linguistic Guidelines:**
    - **Avoid "Translationese" (תרגומית):** Do not translate word-for-word. Translate the intent, subtext, and natural Hebrew conversational flow (e.g., translate "Are you kidding me?" as "אתה צוחק עליי?" or "את עובדת עליי?", never literally).
    - **Gender & Plurality Resolution:** English "you" or gender-neutral verbs must be conjugated accurately into masculine/feminine and singular/plural based on speaker/listener clues, the glossary and the show notes.
    - **Slang, Humor & Profanity:** Preserve the exact register, tone, and intensity of the original dialogue. Do not censor profanity; use authentic Hebrew equivalents that match the character's voice.
    - **Proper Nouns & Technical Terms:** Transliterate character names consistently across batches (use the glossary spellings).
-   - **On-screen titles & speaker chyrons (`segment_type` = "ON_SCREEN", or any line wrapped in `[...]`):** translate concisely as an official Hebrew broadcast screen title and keep the square brackets, e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`, `[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]` → `[ד״ר יאן פרנקה — מומחה בינלאומי ל-GPR]`. Write dates/times the way Israeli broadcasters do.
+   - **On-screen titles & speaker chyrons (`segment_type` = "ON_SCREEN", or any line wrapped in `[...]`):** translate concisely as an official Hebrew broadcast screen title and keep the square brackets, e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`, `[DR. JAN FRANCKE — INTERNATIONAL GPR EXPERT]` → `[ד״ר יאן פרנקה — מומחה בינלאומי ל-GPR]`. Write dates/times the way Israeli broadcasters do.{chyron_sdh_note}
    - **Radio & military comms (`segment_type` = "COMMS", or military/radio terminology in any line):** use authentic IDF/tactical Hebrew radio phrasing, short and clipped, e.g. "Copy that" → "קיבלתי" / "רות", "Over" → "עבור", "Over and out" → "סוף", "Roger" → "רות", "Say again" → "חזור", "Sitrep" → "דו"ח מצב", "Do you copy?" → "שומע?". Keep callsigns as transliterated names.
 """
 
@@ -137,6 +139,18 @@ def build_subtitle_system_prompt(
    - Automatically convert non-metric measurements (miles, feet, inches, yards, pounds/lbs, ounces, Fahrenheit, gallons, acres, etc.) into their natural, idiomatic Metric system equivalents (km, km/h, meters, cm, kg, grams, Celsius, liters, dunams).
    - Round converted numbers naturally and comfortably for subtitle readability, matching common human speech (e.g., "50 feet" → "15 מטר", "6 feet tall" / "6-foot" → "בגובה 1.80 מ׳", "100 degrees" → "38 מעלות", "90 miles an hour" → "145 קמ״ש", "200 pounds" → "90 ק״ג", "half a mile" → "כ-800 מטר", "10 miles" → "16 ק״מ", "5 acres" → "20 דונם").
    - Do NOT convert figurative idioms or symbolic expressions where the unit is metaphorical rather than a literal measurement (e.g. "give him an inch and he'll take a mile", "miles away" meaning distracted, "walk a mile in my shoes", "million-mile stare").
+"""
+
+    sdh_rules = ""
+    if remove_sdh_speakers:
+        sdh_rules = """
+8. **SDH Speaker Labels Stripping:**
+   - Input subtitles (SDH / Closed Captions) often include hearing-impaired speaker labels (e.g. `[JOHN] Hello`, `[Sarah]: I'm fine`, `(MAN 1) Stop!`, `NARRATOR: Long ago...`).
+   - Use the character's name to determine the speaker's gender (masculine/feminine) for accurate grammatical conjugation in the target language (e.g. `[Sarah] I'm ready.` → feminine `אני מוכנה.`).
+   - **Never include the speaker's name or bracketed speaker label in your translation output.** Output ONLY the translated dialogue text (e.g. `[John] Hello!` → `שלום!`, NOT `[ג'ון] שלום!`).
+   - If a segment contains two speakers with labels (e.g. `[John] Yes.\\n[Sarah] No.`), format with standard dialogue hyphens without names:
+     `- כן.\\n- לא.`
+   - Keep square brackets ONLY for genuine on-screen text, dates, and locations (e.g. `[One week later...]` → `[שבוע לאחר מכן...]`, `[Damascus, Syria]` → `[דמשק, סוריה]`).
 """
 
     return f"""You are an elite, broadcast-grade audiovisual subtitle translator specializing in translating movies and TV series from {source_lang} to {target_lang}.
@@ -169,11 +183,12 @@ Translate the `target_batch` subtitle segments into natural, idiomatic, spoken {
 5. **Segment Types (`segment_type`):**
    - "DIALOGUE": normal speech.
    - "COMMS": a radio / walkie-talkie transmission — keep it terse, in radio procedure style.
-   - "ON_SCREEN": text shown on screen (speaker/expert identification chyron, time jump, location, date, phone text message). Translate it as a short screen title (transliterating person names and translating their title/role) and keep any surrounding square brackets `[...]`. A bracketed first line inside a DIALOGUE segment is also an on-screen title: translate it the same way and keep it as the first line.
+   - "ON_SCREEN": text shown on screen (speaker/expert identification chyron, time jump, location, date, phone text message). Translate it as a short screen title (transliterating person names and translating their title/role) and keep any surrounding square brackets `[...]`. (Note: an inline prefix like `[Travis] Hello` inside a DIALOGUE segment is a speaker tag, NOT an on-screen title.)
    - "FOREIGN": a line spoken in a different language than the rest of the show (e.g. Russian in an English series). Its text is either the show's own subtitle for that line or a transcription in the original language — either way, translate it into the target language as ordinary dialogue (no brackets).
 {hebrew_rules}
 {metric_rules}
-8. **Output hygiene:** Plain text only. Keep punctuation at the logical end of sentences and do NOT insert Unicode direction marks or manually reverse punctuation — a downstream processor handles right-to-left display. Never put the ASCII double-quote character (") inside a translation — it ends the JSON string and cuts the subtitle off. For Hebrew abbreviations use gershayim ״ and geresh ׳ (ד״ר, אב״כ, נ״צ, כנ״ל, צה״ל, ג׳יימס); for quotations use “ ”.
+{sdh_rules}
+9. **Output hygiene:** Plain text only. Keep punctuation at the logical end of sentences and do NOT insert Unicode direction marks or manually reverse punctuation — a downstream processor handles right-to-left display. Never put the ASCII double-quote character (") inside a translation — it ends the JSON string and cuts the subtitle off. For Hebrew abbreviations use gershayim ״ and geresh ׳ (ד״ר, אב״כ, נ״צ, כנ״ל, צה״ל, ג׳יימס); for quotations use “ ”.
 """
 
 
@@ -190,14 +205,37 @@ def _is_fatal(exc: Exception) -> bool:
 
 def _looks_truncated(source: str, translation: str) -> bool:
     """A translation far shorter than its source is almost always cut off mid-answer
-    (seen: 'Stand by for exact coordinates. Nishioka, eyes on.' -> 'המתן לנ')."""
-    src = len(re.sub(r"\s+", " ", source).strip())
-    return src >= 25 and len(translation.strip()) < 0.35 * src
+    (seen: 'Stand by for exact coordinates. Nishioka, eyes on.' -> 'המתן לנ'), or corrupted
+    into bare punctuation/brackets ('}]}')."""
+    src_norm = re.sub(r"\s+", " ", source).strip()
+    tr_norm = translation.strip()
+    if re.search(r"\w", src_norm) and not re.search(r"\w", tr_norm):
+        return True
+    src = len(src_norm)
+    return src >= 25 and len(tr_norm) < 0.35 * src
 
 
 def _is_rate_limit(exc: Exception) -> bool:
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     return code == 429 or "resource_exhausted" in str(exc).lower()
+
+
+_SDH_BRACKET_PREFIX = re.compile(r"^(\s*[-–—]?\s*)\[[^\]\n]{1,35}\]\s*:?\s*")
+_SDH_COLON_PREFIX = re.compile(r"^(\s*[-–—]?\s*)[A-Za-z\u0590-\u05fe]{2,20}\s*:\s*")
+
+
+def _strip_sdh_speaker_prefix(text: str) -> str:
+    """Strip accidental leftover speaker label in dialogue lines when SDH stripping is enabled."""
+    lines = []
+    for line in text.split("\n"):
+        s = line.strip()
+        if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
+            lines.append(line)
+            continue
+        cleaned = _SDH_BRACKET_PREFIX.sub(r"\1", line)
+        cleaned = _SDH_COLON_PREFIX.sub(r"\1", cleaned)
+        lines.append(cleaned)
+    return "\n".join(lines)
 
 
 # =====================================================================
@@ -228,6 +266,7 @@ class GeminiTranslator(BaseTranslator):
         glossary_flex: bool = False,
         flex_state: Optional[gemini_calls.FlexState] = None,
         convert_to_metric: bool = False,
+        remove_sdh_speakers: bool = False,
     ):
         resolved_key = (api_key or "").strip() or settings.gemini_api_key
         if not resolved_key or resolved_key == "your_gemini_api_key_here":
@@ -251,6 +290,7 @@ class GeminiTranslator(BaseTranslator):
         self.glossary_flex = glossary_flex
         self.flex_state = flex_state if flex_state is not None else gemini_calls.FlexState()
         self.convert_to_metric = convert_to_metric
+        self.remove_sdh_speakers = remove_sdh_speakers
         self.last_glossary_error: Optional[str] = None
 
     async def _generate(
@@ -378,6 +418,7 @@ class GeminiTranslator(BaseTranslator):
                 max_chars_per_line=self.max_chars_per_line,
                 glossary=batch_glossary,
                 convert_to_metric=self.convert_to_metric,
+                remove_sdh_speakers=self.remove_sdh_speakers,
             )
 
             try:
@@ -457,6 +498,12 @@ class GeminiTranslator(BaseTranslator):
                                        f"{seg.original_text!r}); asking again")
                         raw = ""
                     if raw:
+                        if self.remove_sdh_speakers and (seg.segment_type or "DIALOGUE") == "DIALOGUE":
+                            raw = _strip_sdh_speaker_prefix(raw)
+                        elif (seg.segment_type or "DIALOGUE") == "ON_SCREEN":
+                            orig_s = (seg.original_text or "").strip()
+                            if orig_s.startswith("[") and orig_s.endswith("]") and not (raw.startswith("[") and raw.endswith("]")):
+                                raw = f"[{raw.strip('[]').strip()}]"
                         seg.translated_text = apply_rtl_fix(raw) if apply_rtl else raw
                     else:
                         still_missing.append(seg)

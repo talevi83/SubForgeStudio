@@ -29,11 +29,13 @@ const DEFAULT_CONFIG: JobConfig = {
   high_speech_sensitivity: false,
   use_embedded_subtitles: true,
   selected_subtitle_stream: null,
+  supplement_with_whisper: false,
   detect_onscreen_text: false,
   onscreen_sensitivity: 2,
   allow_onscreen_overlap: true,
   onscreen_position: 'top_center',
   convert_to_metric: false,
+  remove_sdh_speakers: false,
   enable_translation: true,
   target_language: 'Hebrew',
   gemini_api_key_override: '',
@@ -160,7 +162,7 @@ interface JobState {
   deleteJobs: (jobIds: string[]) => Promise<void>;
   deleteAllJobs: () => Promise<void>;
   updateSegment: (segmentId: number, patch: SegmentPatch) => Promise<void>;
-  replaceAll: (search: string, replacement: string, column: 'original' | 'translated') => Promise<number>;
+  replaceAll: (search: string, replacement: string, column: 'original' | 'translated', isRegex?: boolean) => Promise<number>;
   saveGlossary: (glossary: Glossary, profile?: string) => Promise<boolean>;
   retimeActiveJob: () => Promise<void>;
   undoRetime: () => Promise<void>;
@@ -670,14 +672,38 @@ export const useJobStore = create<JobState>((set, get) => {
       }
     },
 
-    replaceAll: async (search, replacement, column) => {
+    replaceAll: async (search, replacement, column, isRegex) => {
       const { activeJob } = get();
       if (!activeJob || !search) return 0;
-      const pattern = new RegExp(escapeRegExp(search), 'gi');
+      let pattern: RegExp;
+      try {
+        if (isRegex) {
+          const match = search.match(/^\/(.*)\/([a-z]*)$/s);
+          if (match) {
+            const flags = match[2].includes('g') ? match[2] : match[2] + 'g';
+            pattern = new RegExp(match[1], flags);
+          } else {
+            pattern = new RegExp(search, 'gi');
+          }
+        } else {
+          pattern = new RegExp(escapeRegExp(search), 'gi');
+        }
+      } catch (e: any) {
+        set({ error: e.message });
+        return 0;
+      }
       const field = column === 'translated' ? 'translated_text' : 'original_text';
       const patches = activeJob.segments
         .filter((s) => s.id && (s[field] || '').match(pattern))
-        .map((s) => ({ id: s.id!, [field]: (s[field] || '').replace(pattern, replacement) }));
+        .map((s) => {
+          const currentText = s[field] || '';
+          const newText = isRegex
+            ? currentText.replace(pattern, replacement ?? '')
+            : currentText.replace(pattern, () => replacement ?? '');
+          return { id: s.id!, currentText, newText };
+        })
+        .filter(({ currentText, newText }) => newText !== currentText)
+        .map(({ id, newText }) => ({ id, [field]: newText }));
       if (patches.length === 0) return 0;
       try {
         const saved = await api.updateSegments(activeJob.id, patches);

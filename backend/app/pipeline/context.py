@@ -45,10 +45,12 @@ class PipelineContext:
     high_speech_sensitivity: bool = False
     use_embedded_subtitles: bool = True
     selected_subtitle_stream: Optional[int] = None
+    supplement_with_whisper: bool = False
     detect_onscreen_text: bool = False
     onscreen_sensitivity: int = 2
     allow_onscreen_overlap: bool = True
     convert_to_metric: bool = False
+    remove_sdh_speakers: bool = False
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"
@@ -107,10 +109,12 @@ class PipelineContext:
 
     @property
     def effective_source_language(self) -> Optional[str]:
+        from app.utils.languages import language_code
+
         if self.embedded_subtitle_stream and getattr(self.embedded_subtitle_stream, "language", None):
             sub_lang = self.embedded_subtitle_stream.language.strip().lower()
             if sub_lang not in ("und", "unknown", "none", "auto", ""):
-                return self.embedded_subtitle_stream.language
+                return language_code(self.embedded_subtitle_stream.language) or self.embedded_subtitle_stream.language
         if self.source_language and self.source_language.lower() not in ("auto", "none"):
-            return self.source_language
-        return self.detected_language
+            return language_code(self.source_language) or self.source_language
+        return language_code(self.detected_language) or self.detected_language

@@ -73,6 +73,13 @@ export const VideoSyncPlayer: React.FC = () => {
       const s = line.trim();
       return s.startsWith('[') && s.endsWith(']');
     };
+    const isSpeakerTagOnly = (line: string) => {
+      const s = line.trim();
+      if (!isBracketed(s)) return false;
+      const inner = s.slice(1, -1).trim();
+      // A single name without spaces/dashes/digits (e.g. "[Travis]", "[טראוויס]") is a speaker label, not a screen title
+      return inner.length > 0 && inner.length <= 18 && !/[\s—–\-0-9:,]/.test(inner);
+    };
     const ensureBrackets = (text: string) => {
       const s = text.trim();
       if (!s) return s;
@@ -85,21 +92,27 @@ export const VideoSyncPlayer: React.FC = () => {
       const checkText = trans || orig;
       const lines = checkText.split('\n').map((l) => l.trim()).filter(Boolean);
 
-      if (seg.segment_type === 'ON_SCREEN' || (lines.length > 0 && lines.every(isBracketed))) {
+      if (seg.segment_type === 'ON_SCREEN' || (lines.length > 0 && lines.every((l) => isBracketed(l) && !isSpeakerTagOnly(l)))) {
         top.push({
           key: `top-${seg.index}`,
           orig: orig ? ensureBrackets(orig) : undefined,
           trans: trans ? ensureBrackets(trans) : undefined,
         });
-      } else if (lines.length >= 2 && isBracketed(lines[0])) {
+      } else if (lines.length >= 2 && isBracketed(lines[0]) && !isSpeakerTagOnly(lines[0])) {
         const origLines = orig.split('\n').map((l) => l.trim()).filter(Boolean);
         const transLines = trans.split('\n').map((l) => l.trim()).filter(Boolean);
-        const topOrig = origLines.length >= 2 && isBracketed(origLines[0]) ? origLines[0] : undefined;
-        const botOrig = origLines.length >= 2 && isBracketed(origLines[0]) ? origLines.slice(1).join('\n') : orig;
-        const topTrans = transLines.length >= 2 && isBracketed(transLines[0]) ? transLines[0] : undefined;
-        const botTrans = transLines.length >= 2 && isBracketed(transLines[0]) ? transLines.slice(1).join('\n') : trans;
-        top.push({ key: `top-${seg.index}`, orig: topOrig || topTrans, trans: topTrans });
-        bottom.push({ key: `bot-${seg.index}`, orig: botOrig, trans: botTrans });
+        const origFirstIsTitle = origLines.length >= 2 && isBracketed(origLines[0]) && !isSpeakerTagOnly(origLines[0]);
+        const transFirstIsTitle = transLines.length >= 2 && isBracketed(transLines[0]) && !isSpeakerTagOnly(transLines[0]);
+        if (origFirstIsTitle && (transFirstIsTitle || !trans)) {
+          const topOrig = origLines[0];
+          const botOrig = origLines.slice(1).join('\n');
+          const topTrans = transFirstIsTitle ? transLines[0] : undefined;
+          const botTrans = transFirstIsTitle ? transLines.slice(1).join('\n') : trans || undefined;
+          top.push({ key: `top-${seg.index}`, orig: topOrig, trans: topTrans });
+          bottom.push({ key: `bot-${seg.index}`, orig: botOrig, trans: botTrans });
+        } else {
+          bottom.push({ key: `bot-${seg.index}`, orig: orig || undefined, trans: trans || undefined });
+        }
       } else {
         bottom.push({ key: `bot-${seg.index}`, orig: orig || undefined, trans: trans || undefined });
       }
@@ -323,55 +336,65 @@ export const VideoSyncPlayer: React.FC = () => {
 
         {topOverlays.length > 0 && (
           <div className={getOnscreenContainerClass(onscreenPos)}>
-            {topOverlays.map((item) => (
-              <div
-                key={item.key}
-                className={`max-w-[90%] bg-black/80 px-4 py-1.5 rounded-lg space-y-1 border border-cyan-500/25 ${getOnscreenTextClass(onscreenPos)} ${
-                  isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
-                }`}
-              >
-                {showOriginal && item.orig && (
-                  <p className="font-medium leading-relaxed whitespace-pre-line text-cyan-200 italic">
-                    {item.orig}
-                  </p>
-                )}
-                {showTranslated && item.trans && (
-                  <p
-                    dir={isRtlTarget ? 'rtl' : 'ltr'}
-                    className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
-                  >
-                    {item.trans}
-                  </p>
-                )}
-              </div>
-            ))}
+            {topOverlays.map((item) => {
+              const displayOrig = showOriginal ? item.orig : (!item.trans ? item.orig : undefined);
+              const displayTrans = showTranslated ? item.trans : undefined;
+              if (!displayOrig && !displayTrans) return null;
+              return (
+                <div
+                  key={item.key}
+                  className={`max-w-[90%] bg-black/80 px-4 py-1.5 rounded-lg space-y-1 border border-cyan-500/25 ${getOnscreenTextClass(onscreenPos)} ${
+                    isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
+                  }`}
+                >
+                  {displayOrig && (
+                    <p className="font-medium leading-relaxed whitespace-pre-line text-cyan-200 italic">
+                      {displayOrig}
+                    </p>
+                  )}
+                  {displayTrans && (
+                    <p
+                      dir={isRtlTarget ? 'rtl' : 'ltr'}
+                      className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
+                    >
+                      {displayTrans}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
         {bottomOverlays.length > 0 && (
           <div className="absolute bottom-6 inset-x-4 flex flex-col items-center gap-1.5 pointer-events-none z-10">
-            {bottomOverlays.map((item) => (
-              <div
-                key={item.key}
-                className={`max-w-[90%] bg-black/80 px-4 py-2 rounded-lg text-center space-y-1 ${
-                  isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
-                }`}
-              >
-                {showOriginal && item.orig && (
-                  <p className="font-medium leading-relaxed whitespace-pre-line text-white">
-                    {item.orig}
-                  </p>
-                )}
-                {showTranslated && item.trans && (
-                  <p
-                    dir={isRtlTarget ? 'rtl' : 'ltr'}
-                    className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
-                  >
-                    {item.trans}
-                  </p>
-                )}
-              </div>
-            ))}
+            {bottomOverlays.map((item) => {
+              const displayOrig = showOriginal ? item.orig : (!item.trans ? item.orig : undefined);
+              const displayTrans = showTranslated ? item.trans : undefined;
+              if (!displayOrig && !displayTrans) return null;
+              return (
+                <div
+                  key={item.key}
+                  className={`max-w-[90%] bg-black/80 px-4 py-2 rounded-lg text-center space-y-1 ${
+                    isFullscreen ? 'text-2xl' : 'text-sm sm:text-base'
+                  }`}
+                >
+                  {displayOrig && (
+                    <p className="font-medium leading-relaxed whitespace-pre-line text-white">
+                      {displayOrig}
+                    </p>
+                  )}
+                  {displayTrans && (
+                    <p
+                      dir={isRtlTarget ? 'rtl' : 'ltr'}
+                      className="text-amber-300 font-medium leading-relaxed whitespace-pre-line font-rtl-hebrew"
+                    >
+                      {displayTrans}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
