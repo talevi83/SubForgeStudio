@@ -123,7 +123,7 @@ def test_estimate_endpoint(client: TestClient):
     assert set(est["stages"]) == {"glossary", "translation", "onscreen", "foreign"}
     assert est["stages"]["foreign"]["frames"] == 540  # 10% of 45 min, 2 crops per second
     assert est["segments"] == 630
-    assert est["stages"]["translation"]["requests"] == 11
+    assert est["stages"]["translation"]["requests"] == 6
     assert est["stages"]["onscreen"]["frames"] == min(settings.onscreen_max_frames, 675)  # capped by ONSCREEN_MAX_FRAMES
     assert 0 < est["total_cost_usd"] < 1
     assert est["total_cost_usd"] == pytest.approx(sum(s["cost_usd"] for s in est["stages"].values()), abs=1e-3)
@@ -140,7 +140,7 @@ def test_estimate_responds_to_thinking_level():
     high = base.model_copy(update={"translation": GeminiCallSettings(model="gemini-3.8-flash", thinking="high")})
     cheap = mc.estimate_job_cost(2700, True, False, base)["stages"]["translation"]["cost_usd"]
     pricey = mc.estimate_job_cost(2700, True, False, high)["stages"]["translation"]["cost_usd"]
-    assert pricey > cheap * 2
+    assert pricey > cheap * 1.5
 
 
 class _FakeGenAI:

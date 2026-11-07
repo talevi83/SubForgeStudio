@@ -537,7 +537,7 @@ def estimate_job_cost(
     detect_onscreen_text: bool,
     app_settings: Any,
     glossary_pass: bool = True,
-    translation_batch_size: int = 60,
+    translation_batch_size: int = 120,
     system_prompt_tokens: int = 1900,
     frame_interval: float = 2.0,
     max_frames: int = 360,

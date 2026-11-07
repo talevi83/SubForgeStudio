@@ -38,12 +38,12 @@ def _clean_settings_file():
 
 
 # ---------------------------------------------------------------------------
-# 1. Default batch size 60 & prune_glossary_for_batch
+# 1. Default batch size 120 & prune_glossary_for_batch
 # ---------------------------------------------------------------------------
 
-def test_default_batch_size_is_60():
-    assert Settings.model_fields["gemini_batch_size"].default == 60
-    assert settings.gemini_batch_size == 60
+def test_default_batch_size_is_120():
+    assert Settings.model_fields["gemini_batch_size"].default == 120
+    assert settings.gemini_batch_size == 120
     assert Settings.model_fields["cost_saver_mode"].default is False
 
 

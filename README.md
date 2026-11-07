@@ -51,8 +51,8 @@
    - Timing pass: no overlaps, ≥2-frame gaps, display time extended toward a target reading speed (`TARGET_CPS`), short gaps closed to avoid flicker.
    - Reading speed (CPS) badges, plus an "Only problems" filter and segment tag filter in the editor.
 
-4. **Context-Aware Gemini Subtitle Translation (Batch 60 + Dynamic Glossary Pruning + Separate On-Screen Pass):**
-   - Default batch size of 60 lines (`GEMINI_BATCH_SIZE=60`) halves translation request roundtrips and cuts repeated prompt/thinking token overhead by 50%.
+4. **Context-Aware Gemini Subtitle Translation (Batch 120 + Dynamic Glossary Pruning + Separate On-Screen Pass):**
+   - Default batch size of 120 lines (`GEMINI_BATCH_SIZE=120`) cuts translation request roundtrips and repeated prompt/thinking token overhead.
    - **Dedicated On-Screen Translation Pass:** `[ON_SCREEN]` cues (burned-in signs, location chyrons, HUD telemetry, text messages) are translated in a separate pass with a dedicated sign/title prompt from spoken dialogue (`DIALOGUE` / `COMMS` / `FOREIGN`), preventing sign text and overlapping dialogue from contaminating or overwriting each other during translation.
    - One glossary pass over the whole transcript (characters, gender, terminology) feeds translation, with per-batch dynamic glossary pruning (main cast + characters and terms appearing in the active window) so prompts stay compact without mutating the saved glossary.
    - **Metric System Conversion Toggle (`convert_to_metric`):** Optional setting (in Settings and per job) to automatically convert imperial measurements (miles, feet, inches, lbs, Fahrenheit, gallons, acres) into natural, idiomatic metric equivalents (km, m, kg, Celsius, liters, dunams) with natural rounding while preserving figurative idioms.
@@ -271,7 +271,7 @@ Optional settings (defaults shown):
 | `WHISPER_GAP_RECOVERY` | `true` | Missed-speech recovery (see Settings above). |
 | `WHISPER_SNAP_STARTS` | `true` | Subtitle start alignment (see Settings above). |
 | `MAX_CONCURRENT_TRANSCRIPTIONS` | `1` | Jobs allowed on the GPU at once (others wait as *Queued*). |
-| `GEMINI_BATCH_SIZE` | `60` | Subtitle lines per translation request. |
+| `GEMINI_BATCH_SIZE` | `120` | Subtitle lines per translation request. |
 | `GEMINI_GLOSSARY_PASS` | `true` | Build a character/terminology glossary before translating. |
 | `COST_SAVER_MODE` | `false` | Enable local frame pre-filtering, Whisper VRAM unloading, and local Ollama pre-tagging. |
 | `ALLOW_ONSCREEN_OVERLAP` | `true` | Allow on-screen OCR titles to display concurrently with dialogue subtitles. |
