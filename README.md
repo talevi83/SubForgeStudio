@@ -44,12 +44,13 @@
    - Surround (5.1/7.1) tracks are downmixed with emphasis on the dialogue centre channel (boosting center speech while attenuating LFE/surround noise).
    - Cancel really stops Whisper mid-file.
 
-3. **Broadcast-Grade Subtitle Refinement, Speaker Split & SDH Cleaning:**
+3. **Broadcast-Grade Subtitle Refinement, Smart End-Credits Detection, Speaker Split & SDH Cleaning:**
    - Re-segments Whisper's output by sentence: lines Whisper cut mid-sentence are re-joined, dangling one-word fragments are merged, and sentences from different Whisper segments are never glued together (avoids mixing speakers).
+   - **Smart End-Credits Detection & Post-Credits Scene Preservation (`skip_end_credits`, `pipeline/credits_detect.py`):** Automatically detects and skips end-credits rolls, cast/crew cards, and closing songs (including punctuated hip-hop/rap lyrics) in the tail of the video using container chapter markers (`ffprobe -show_chapters`), visual thumbnail analysis of dark scrolling credit screens (`thumbs.raw`), and text/dialogue clustering — while preserving mid-credits and post-credits dialogue scenes (e.g. Marvel stingers) and narrative stinger cards (`[THOR WILL RETURN]`, `[MEANWHILE...]`).
    - **Multi-Speaker Turn Splitting & SDH Cleanup (`utils/speaker_split.py`):** Automatically detects and formats multi-speaker dialogue turns with standard dialogue dashes (`- ...`), and offers a **Clean Hearing-Impaired (SDH) Tags (`remove_sdh_speakers`)** toggle (in Settings and per job) that strips speaker labels (`JOHN:`, `[MAN]`) and sound-effect cues (`(sighs)`, `[door slams]`) from spoken dialogue while preserving genuine `[ON_SCREEN]` titles.
    - Long sentences are split at clause boundaries/pauses, max 42 characters per line and 2 lines per subtitle.
    - Timing pass: no overlaps, ≥2-frame gaps, display time extended toward a target reading speed (`TARGET_CPS`), short gaps closed to avoid flicker.
-   - Reading speed (CPS) badges, plus an "Only problems" filter and segment tag filter in the editor.
+   - Reading speed (CPS) badges, plus a categorized problem filter (`All problems`, `Untranslated / failed`, `Leftover English in translation`, `Fast reading speed / CPS`) and segment tag filter in the editor.
 
 4. **Context-Aware Gemini Subtitle Translation (Batch 120 + Dynamic Glossary Pruning + Separate On-Screen Pass):**
    - Default batch size of 120 lines (`GEMINI_BATCH_SIZE=120`) cuts translation request roundtrips and repeated prompt/thinking token overhead.
@@ -76,13 +77,15 @@
    - **Live Screen Position Selector (`onscreen_position`):** Choose where on-screen translations appear (`Top Center \an8`, `Center \an5`, `Center Right \an6`, `Center Left \an4`, `Top Right \an9`, `Top Left \an7`) in Settings, during Ingest, or **live inside the Studio editor toolbar** (`PATCH /api/jobs/{id}/settings`) without re-running the job. The HTML5 video player renders separate top/middle and bottom subtitle layers simultaneously, and exports serialize standard SubStation Alpha `{\anX}` tags in SRT and cue positioning in WebVTT.
    - **Speech in other languages** (e.g. Russian in an English episode): passages in another language are detected, sampled from the bottom third with GPU acceleration, and read from burned-in subtitles (or re-transcribed by Whisper).
 
-8. **Interactive Studio Workspace & Project Management:**
+8. **Interactive Studio Workspace, Virtualized Editor & Project Management:**
    - Split-screen workspace with synced HTML5 video player (HTTP Range seeking), dual-layer subtitle overlay (simultaneous dialogue + positioned on-screen cues), seek bar, and fullscreen.
+   - **60fps Virtualized Subtitle Table:** Windowed table rendering keeps only the visible viewport rows (+ overscan buffer) mounted in the DOM, paired with deferred search filtering (`useDeferredValue`) and primitive playhead index subscriptions so 2,500+ line feature films scroll and edit with zero lag.
+   - **Quick Jump & Fast Range Selection:** Jump directly to any line number (`#1850`) or timestamp (`1:15:00`) from the table toolbar, jump to the top/bottom of the list in one click, or select all rows from row `#X` to the end (or from the start to `#X`) via the row action button, `Alt+Click` on a checkbox, or the selection bar.
    - Keyboard: `Space` play/pause, `←/→` ±2s (`Shift` ±0.1s), `[` / `]` set the subtitle start/end to the playhead, `N` add a line at the playhead, `F` fullscreen.
-   - **Add, Delete & Bulk-Delete lines:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Select individual rows, Shift-click a range, or use the **Select All checkbox** in the table header to bulk re-translate or bulk delete (`DELETE /api/jobs/{id}/segments`) selected subtitle rows with automatic renumbering.
+   - **Add, Delete & Bulk-Delete lines:** *Add line* above the table (or `N`) opens it at the playhead, the `+` under a row number right after that row. Select individual rows, Shift-click a range, expand selection to the end, or use the **Select All checkbox** in the table header to bulk re-translate or bulk delete (`DELETE /api/jobs/{id}/segments`) selected subtitle rows with automatic renumbering.
    - **Bulk Project Deletion & Clear All (Sidebar):** Select multiple projects in the sidebar or click **Clear All** to delete finished jobs, their cached audio/frames/logs, and their owned uploads in one action (`POST /api/jobs/bulk-delete`, `DELETE /api/jobs`).
-   - **Filter by Tag & Problems:** Dedicated tag filter dropdown in the toolbar allows filtering to On-Screen (📺), Comms (📻), Foreign (🌐), or any tagged subtitle with real-time counts, plus instant filtering by clicking on row badges directly.
-   - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace.
+   - **Filter by Tag & Categorized Problems:** Dedicated tag filter dropdown (`ON_SCREEN` 📺, `COMMS` 📻, `FOREIGN` 🌐, or any tagged cue) and categorized problem filter (`All problems`, `Untranslated / failed`, `Leftover English in translation`, `Fast reading speed / CPS` — also clickable directly from the bottom warning badge).
+   - Inline editor with debounced auto-save, ±100ms nudges, and bulk Search & Replace (with Regex toggle).
    - Export to `.srt` or `.vtt`, named for media servers (e.g. `Movie.he.srt`).
 
 9. **⏱ Sync Existing Subtitles (+ Optional Whisper Supplement):**
@@ -180,6 +183,7 @@ SubsForge Studio/
 │   │   │   ├── missing_speech.py      # Supplement embedded/synced subtitles with Whisper speech detection
 │   │   │   ├── word_snap.py    # Subtitle start alignment
 │   │   │   ├── onscreen_prefilter.py  # Local frame edge & dHash pre-filter (with steady-state retention)
+│   │   │   ├── credits_detect.py      # Smart end-credits detection & mid/post-credits scene preservation
 │   │   │   ├── gender_pretag.py       # Local Ollama gender pre-tagging
 │   │   │   ├── glossary_pruner.py     # Dynamic glossary pruning per batch
 │   │   │   ├── speech_regions.py, retime.py   # Speech maps, "Re-check timing" and drag-to-reorder
@@ -278,6 +282,7 @@ Optional settings (defaults shown):
 | `ONSCREEN_POSITION` | `top_center` | Default screen position for on-screen OCR text (`top_center`, `middle_center`, `middle_right`, `middle_left`, `top_right`, `top_left`). |
 | `CONVERT_TO_METRIC` | `false` | Convert non-metric units (miles, feet, pounds, Fahrenheit, etc.) to metric equivalents during translation. |
 | `REMOVE_SDH_SPEAKERS` | `false` | Strip hearing-impaired speaker labels (`JOHN:`) and sound cues (`[sighs]`) from dialogue while keeping `[ON_SCREEN]` titles. |
+| `SKIP_END_CREDITS` | `true` | Automatically skip end-credits rolls and closing songs while preserving mid-credits and post-credits scenes. |
 | `GEMINI_VISION_MODEL` | `gemini-3.5-flash-lite` | Initial model that reads on-screen text from frames. |
 | `ONSCREEN_FRAME_INTERVAL` / `ONSCREEN_MAX_FRAMES` | `2.0` / `660` | Frame sampling interval (s) and max frames sent to Gemini (scaled per sensitivity level 1–3). Frame extraction uses GPU acceleration (`-hwaccel auto`). |
 | `ONSCREEN_BATCH_SIZE` | `12` | Frames per Gemini Vision request. |
@@ -412,4 +417,5 @@ The test suite covers:
 - **`test_embedded_subtitles.py`**: embedded text subtitle stream discovery, direct FFmpeg extraction vs. Whisper fallback when `use_embedded_subtitles` is toggled off.
 - **`test_missing_speech.py`**: supplementing embedded or synced subtitles with Whisper speech detection (`supplement_with_whisper`), coverage overlap checks, and hallucination filtering.
 - **`test_speaker_split.py`**: multi-speaker turn splitting (`- ...`), hearing-impaired SDH speaker tag and sound-effect removal (`remove_sdh_speakers`), while preserving `[ON_SCREEN]` titles.
+- **`test_credits_detect.py`**: smart end-credits detection via container chapters, dark visual credit-roll thumbnails, hip-hop/song lyric filtering, and preservation of mid/post-credits dialogue scenes and narrative stinger cards.
 - **`test_finops_optimizations.py`**: local frame edge & dHash pre-filtering (including steady-state retention), dynamic glossary pruning, and local Ollama gender pre-tagging.

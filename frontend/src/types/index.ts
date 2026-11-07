@@ -49,6 +49,7 @@ export interface SubtitleStreamInfo {
 
 export type SegmentType = 'DIALOGUE' | 'COMMS' | 'ON_SCREEN' | 'FOREIGN';
 export type OnscreenPosition = 'top_center' | 'top_left' | 'top_right' | 'middle_left' | 'middle_right';
+export type ProblemFilter = 'NONE' | 'ALL_PROBLEMS' | 'UNTRANSLATED' | 'LATIN_LEFTOVER' | 'HIGH_CPS';
 
 export interface VideoStreamInfo {
   codec_name: string;
@@ -129,6 +130,7 @@ export interface Job {
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
   remove_sdh_speakers?: boolean;
+  skip_end_credits?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_model: string;
@@ -251,6 +253,7 @@ export interface JobConfig {
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
   remove_sdh_speakers?: boolean;
+  skip_end_credits?: boolean;
   enable_translation: boolean;
   target_language: string;
   gemini_api_key_override?: string;
@@ -356,6 +359,7 @@ export interface AppSettings {
   onscreen_position?: OnscreenPosition;
   convert_to_metric?: boolean;
   remove_sdh_speakers?: boolean;
+  skip_end_credits?: boolean;
   cost_saver_mode?: boolean;
 }
 

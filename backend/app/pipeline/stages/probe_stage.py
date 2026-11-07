@@ -34,6 +34,7 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
         "-print_format", "json",
         "-show_format",
         "-show_streams",
+        "-show_chapters",
         str(path.resolve()),
     ]
 
@@ -51,6 +52,7 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
     data = json.loads(stdout.decode(errors="ignore"))
     format_info = data.get("format", {})
     streams = data.get("streams", [])
+    raw_chapters = data.get("chapters", []) or []
 
     duration_val = float(format_info.get("duration", 0.0) or 0.0)
     file_size = int(format_info.get("size", 0) or os.path.getsize(path))
@@ -59,8 +61,21 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
     video_streams = []
     audio_streams = []
     subtitle_streams = []
+    chapters = []
     audio_idx = 0
     subtitle_idx = 0
+
+    for ch in raw_chapters:
+        try:
+            ch_tags = ch.get("tags") or {}
+            chapters.append({
+                "id": ch.get("id"),
+                "start_time": float(ch.get("start_time", 0.0) or 0.0),
+                "end_time": float(ch.get("end_time", duration_val) or duration_val),
+                "title": ch_tags.get("title") or "",
+            })
+        except (TypeError, ValueError):
+            continue
 
     for stream in streams:
         c_type = stream.get("codec_type")
@@ -110,6 +125,7 @@ async def probe_media_file(file_path: str) -> ProbeResponse:
         video_streams=video_streams,
         audio_streams=audio_streams,
         subtitle_streams=subtitle_streams,
+        chapters=chapters,
     )
 
 
@@ -136,6 +152,7 @@ class ProbeStage(PipelineStage):
             "format_name": probe_res.format_name,
             "video_streams": probe_res.video_streams,
             "file_size": probe_res.file_size,
+            "chapters": probe_res.chapters,
         }
 
         if on_progress:

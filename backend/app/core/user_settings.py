@@ -40,6 +40,7 @@ class AppSettings(BaseModel):
     onscreen_position: Literal["top_center", "top_left", "top_right", "middle_left", "middle_right"] = "top_center"
     convert_to_metric: bool = False
     remove_sdh_speakers: bool = False
+    skip_end_credits: bool = True
     cost_saver_mode: bool = False
 
     @model_validator(mode="after")
@@ -77,6 +78,7 @@ def _defaults() -> AppSettings:
         onscreen_position=getattr(settings, "onscreen_position", "top_center"),
         convert_to_metric=getattr(settings, "convert_to_metric", False),
         remove_sdh_speakers=getattr(settings, "remove_sdh_speakers", False),
+        skip_end_credits=getattr(settings, "skip_end_credits", True),
         **calls,
     )
 

@@ -48,6 +48,7 @@ class ProbeResponse(BaseModel):
     video_streams: List[Dict[str, Any]] = []
     audio_streams: List[AudioStreamInfo] = []
     subtitle_streams: List[SubtitleStreamInfo] = []
+    chapters: List[Dict[str, Any]] = []
 
 
 class JobConfig(BaseModel):
@@ -66,6 +67,7 @@ class JobConfig(BaseModel):
     onscreen_position: Optional[str] = "top_center"
     convert_to_metric: bool = False
     remove_sdh_speakers: bool = False
+    skip_end_credits: bool = True
     enable_translation: bool = False
     target_language: str = "Hebrew"
     # None = use the translation model chosen on the Settings screen
@@ -266,6 +268,7 @@ class JobResponse(BaseModel):
     onscreen_position: Optional[str] = "top_center"
     convert_to_metric: bool = False
     remove_sdh_speakers: bool = False
+    skip_end_credits: bool = True
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"

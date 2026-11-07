@@ -232,6 +232,7 @@ class PipelineOrchestrator:
                 allow_onscreen_overlap=getattr(job, "allow_onscreen_overlap", True),
                 convert_to_metric=getattr(job, "convert_to_metric", False),
                 remove_sdh_speakers=getattr(job, "remove_sdh_speakers", False),
+                skip_end_credits=getattr(job, "skip_end_credits", True),
                 enable_translation=job.enable_translation or self.mode == "translate",
                 target_language=job.target_language,
                 gemini_model=job.gemini_model,

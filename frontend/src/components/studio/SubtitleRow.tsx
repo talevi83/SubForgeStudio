@@ -3,7 +3,7 @@ import type { SegmentPatch, SubtitleSegment } from '../../types';
 import { CpsBadge } from './CpsBadge';
 import { formatTimecode } from '../../utils/time';
 import { useT } from '../../i18n';
-import { AlertTriangle, GripVertical, Minus, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronsDown, GripVertical, Minus, Plus, Trash2 } from 'lucide-react';
 
 const SAVE_DELAY_MS = 600;
 
@@ -17,22 +17,23 @@ interface SubtitleRowProps {
   onSelect: (seg: SubtitleSegment) => void;
   onSave: (segmentId: number, patch: SegmentPatch) => void;
   rowRef?: React.Ref<HTMLTableRowElement>;
-  /** Row selection (for re-translating a few rows); omitted while the job is running */
+  /** Row selection (for re-translating or deleting rows); omitted while the job is running */
   checked?: boolean;
   onCheck?: (segmentId: number, shift: boolean) => void;
+  /** Select from this row to the end of the displayed list in one click */
+  onSelectToEnd?: (segmentId: number) => void;
   /** "+" under the row number: add a line right after this one; omitted while the job runs */
   onInsertAfter?: (seg: SubtitleSegment) => void;
   /** Delete this subtitle line; omitted while the job runs */
   onDelete?: (seg: SubtitleSegment) => void;
-  /** Drag-to-move support; omitted while the table is filtered or still being generated. */
-  dnd?: {
-    isDragging: boolean;
-    drop: 'before' | 'after' | null;
-    onDragStart: (segmentId: number) => void;
-    onDragOver: (segmentId: number) => void;
-    onDrop: (segmentId: number) => void;
-    onDragEnd: () => void;
-  };
+  /** Drag-to-move support (passed as primitive/stable props so React.memo never invalidates) */
+  canDrag?: boolean;
+  isDragging?: boolean;
+  dropPosition?: 'before' | 'after' | null;
+  onDragStart?: (segmentId: number) => void;
+  onDragOver?: (segmentId: number) => void;
+  onDrop?: (segmentId: number) => void;
+  onDragEnd?: () => void;
   /** Filter the table by this tag when clicking the badge */
   onFilterTag?: (tag: string) => void;
 }
@@ -119,9 +120,16 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
   rowRef,
   checked,
   onCheck,
+  onSelectToEnd,
   onInsertAfter,
   onDelete,
-  dnd,
+  canDrag,
+  isDragging,
+  dropPosition,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
   onFilterTag,
 }) => {
   const t = useT();
@@ -158,25 +166,25 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
       ref={rowRef}
       onClick={() => onSelect(seg)}
       onDragOver={
-        dnd && seg.id
+        canDrag && onDragOver && seg.id
           ? (e) => {
               e.preventDefault();
-              dnd.onDragOver(seg.id!);
+              onDragOver(seg.id!);
             }
           : undefined
       }
       onDrop={
-        dnd && seg.id
+        canDrag && onDrop && seg.id
           ? (e) => {
               e.preventDefault();
-              dnd.onDrop(seg.id!);
+              onDrop(seg.id!);
             }
           : undefined
       }
       className={`transition-colors cursor-pointer group ${
-        dnd?.isDragging ? 'opacity-40 ' : ''
-      }${dnd?.drop === 'before' ? 'shadow-[inset_0_2px_0_0_rgb(99,102,241)] ' : ''}${
-        dnd?.drop === 'after' ? 'shadow-[inset_0_-2px_0_0_rgb(99,102,241)] ' : ''
+        isDragging ? 'opacity-40 ' : ''
+      }${dropPosition === 'before' ? 'shadow-[inset_0_2px_0_0_rgb(99,102,241)] ' : ''}${
+        dropPosition === 'after' ? 'shadow-[inset_0_-2px_0_0_rgb(99,102,241)] ' : ''
       }${
         isActive
           ? 'bg-indigo-950/40 border-s-2 border-indigo-500'
@@ -186,7 +194,7 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
       }`}
     >
       <td className="py-2 px-3 text-center text-zinc-500 font-mono text-[11px] select-none align-top">
-        {dnd && seg.id && (
+        {canDrag && onDragStart && seg.id && (
           <span
             draggable
             onDragStart={(e) => {
@@ -194,9 +202,9 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
               e.dataTransfer.setData('text/plain', String(seg.id));
               const tr = (e.currentTarget as HTMLElement).closest('tr');
               if (tr) e.dataTransfer.setDragImage(tr, 16, 16);
-              dnd.onDragStart(seg.id!);
+              onDragStart(seg.id!);
             }}
-            onDragEnd={dnd.onDragEnd}
+            onDragEnd={onDragEnd}
             onClick={(e) => e.stopPropagation()}
             title={t('table.dragHandle')}
             className="mx-auto mb-0.5 block w-fit cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100"
@@ -211,9 +219,13 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
             onChange={() => undefined}
             onClick={(e) => {
               e.stopPropagation();
-              onCheck(seg.id!, e.shiftKey);
+              if (e.altKey && onSelectToEnd) {
+                onSelectToEnd(seg.id!);
+              } else {
+                onCheck(seg.id!, e.shiftKey);
+              }
             }}
-            title={t('table.selectRow')}
+            title={t('table.selectRowToEndTitle', { index: seg.index })}
             aria-label={t('table.selectRow')}
             className={`mx-auto mb-0.5 block w-3 h-3 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer transition-opacity ${
               checked ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
@@ -235,6 +247,21 @@ const SubtitleRowInner: React.FC<SubtitleRowProps> = ({
               className="flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-indigo-600 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer transition-opacity"
             >
               <Plus className="w-3 h-3" />
+            </button>
+          )}
+          {onSelectToEnd && seg.id && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectToEnd(seg.id!);
+              }}
+              title={t('table.selectRowToEndTitle', { index: seg.index })}
+              aria-label={t('table.selectRowToEndTitle', { index: seg.index })}
+              data-testid={`select-to-end-${seg.index}`}
+              className="flex h-4 w-4 items-center justify-center rounded text-zinc-500 hover:text-indigo-200 hover:bg-indigo-600/30 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer transition-opacity"
+            >
+              <ChevronsDown className="w-3 h-3" />
             </button>
           )}
           {onDelete && seg.id && (

@@ -971,6 +971,19 @@ class RefineStage(PipelineStage):
             allow_overlap=allow_overlap,
         )
 
+        credits_removed = 0
+        if getattr(ctx, "skip_end_credits", True):
+            from app.pipeline.credits_detect import filter_credits_segments
+
+            chapters = (ctx.video_metadata or {}).get("chapters") or ()
+            visual_spans = getattr(ctx, "visual_credit_spans", ()) or ()
+            ctx.refined_segments, credits_removed = filter_credits_segments(
+                ctx.refined_segments,
+                ctx.duration or 0.0,
+                chapters=chapters,
+                visual_credit_spans=visual_spans,
+            )
+
         if on_progress:
             extras = []
             if comms:
@@ -979,5 +992,7 @@ class RefineStage(PipelineStage):
                 extras.append(f"{len(ctx.onscreen_segments)} on-screen")
             if foreign:
                 extras.append(f"{foreign} foreign-language")
+            if credits_removed:
+                extras.append(f"{credits_removed} credits skipped")
             suffix = f" ({', '.join(extras)})" if extras else ""
             await on_progress(100.0, None, None, f"Refined {len(ctx.refined_segments)} subtitle segments{suffix}", None)

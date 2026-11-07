@@ -444,6 +444,12 @@ async def sample_frames(ctx: PipelineContext, interval: Optional[float] = None) 
         frames.append(Frame(time=round(i * interval, 3), path=jpg, change=change, overlay_change=overlay_change))
         prev = thumb if len(thumb) == size else prev
     _fill_static_runs(frames, interval)
+    if getattr(ctx, "skip_end_credits", True) and thumbs:
+        from app.pipeline.credits_detect import detect_visual_credit_spans
+
+        ctx.visual_credit_spans = detect_visual_credit_spans(
+            thumbs, interval, ctx.duration or (len(frames) * interval), width=_THUMB_W, height=_THUMB_H
+        )
     return frames
 
 
@@ -1123,6 +1129,25 @@ class OnScreenTextStage(PipelineStage):
         else:
             frame_budget = settings.onscreen_max_frames
 
+        if getattr(ctx, "skip_end_credits", True):
+            from app.pipeline.credits_detect import detect_visual_credit_spans, filter_frames_for_credits
+
+            thumbs_file = out_dir / "thumbs.raw"
+            thumbs_bytes = thumbs_file.read_bytes() if thumbs_file.exists() else b""
+            chapters = (ctx.video_metadata or {}).get("chapters") or ()
+            ctx.visual_credit_spans = detect_visual_credit_spans(
+                thumbs_bytes,
+                settings.onscreen_frame_interval,
+                ctx.duration or 0.0,
+            )
+            frames, _ = filter_frames_for_credits(
+                frames,
+                ctx.duration or 0.0,
+                chapters=chapters,
+                thumbs_bytes=thumbs_bytes,
+                frame_interval=settings.onscreen_frame_interval,
+            )
+
         selected = select_frames(frames, speech, frame_budget)
 
         from app.core.user_settings import load_settings
@@ -1233,13 +1258,40 @@ class OnScreenTextStage(PipelineStage):
             ctx.warnings.append(f"Reading burned-in subtitles failed: {e}")
 
     async def _read_subtitles(self, ctx: PipelineContext, client: Any, progress) -> None:
-        total_seconds = sum(s["end"] - s["start"] for s in ctx.foreign_spans)
-        interval = max(_SUB_INTERVAL, total_seconds / _SUB_MAX_FRAMES)
         duration = ctx.duration or float("inf")
-        detections: List[FrameDetection] = []
-        await progress(70.0, f"Reading burned-in subtitles in {len(ctx.foreign_spans)} foreign-language passage(s)...")
+        spans_to_scan = list(ctx.foreign_spans)
+        if getattr(ctx, "skip_end_credits", True):
+            from app.pipeline.credits_detect import parse_chapter_spans
 
-        for n, span in enumerate(ctx.foreign_spans):
+            chapters = (ctx.video_metadata or {}).get("chapters") or ()
+            chapter_credits, chapter_scenes = parse_chapter_spans(
+                chapters, ctx.duration or 0.0
+            )
+            credit_spans = list(chapter_credits) + list(getattr(ctx, "visual_credit_spans", ()) or ())
+            if credit_spans:
+                filtered_spans = []
+                for sp in spans_to_scan:
+                    mid = (float(sp["start"]) + float(sp["end"])) / 2.0
+                    in_scene = any(s - 1.0 <= mid <= e + 1.0 for s, e in chapter_scenes)
+                    in_cred = any(s - 1.0 <= mid <= e + 1.0 for s, e in credit_spans)
+                    if in_cred and not in_scene:
+                        logger.info(
+                            f"Foreign passage at {sp['start']:.1f}-{sp['end']:.1f}s skipped "
+                            f"(falls inside end-credits roll)"
+                        )
+                        continue
+                    filtered_spans.append(sp)
+                spans_to_scan = filtered_spans
+
+        if not spans_to_scan:
+            return
+
+        total_seconds = sum(s["end"] - s["start"] for s in spans_to_scan)
+        interval = max(_SUB_INTERVAL, total_seconds / _SUB_MAX_FRAMES)
+        detections: List[FrameDetection] = []
+        await progress(70.0, f"Reading burned-in subtitles in {len(spans_to_scan)} foreign-language passage(s)...")
+
+        for n, span in enumerate(spans_to_scan):
             # The scanned window: the span plus a fixed margin on both sides
             start = max(0.0, span["start"] - _SUB_MARGIN)
             end = min(duration, span["end"] + _SUB_MARGIN)
@@ -1280,7 +1332,7 @@ class OnScreenTextStage(PipelineStage):
                 read_start, read_end = min(read_start, edge_start), max(read_end, edge_end)
             # Subtitles read anywhere in this window belong to the passage (see merge_foreign)
             span["read_start"], span["read_end"] = read_start, read_end
-            await progress(70.0 + 28.0 * (n + 1) / len(ctx.foreign_spans), f"Read subtitles in passage {n + 1}/{len(ctx.foreign_spans)}")
+            await progress(70.0 + 28.0 * (n + 1) / len(spans_to_scan), f"Read subtitles in passage {n + 1}/{len(spans_to_scan)}")
 
         ctx.foreign_ocr_segments = merge_frame_detections(
             detections,

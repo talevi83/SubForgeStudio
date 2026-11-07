@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     convert_to_metric: bool = False
     # Remove hearing-impaired SDH speaker tags/brackets in dialogue while preserving on-screen titles
     remove_sdh_speakers: bool = False
+    # Detect end credits rolls/songs in the tail of the video and skip them while preserving mid/post-credits scenes
+    skip_end_credits: bool = True
     # Run a one-off glossary pass (characters, genders, terms) before translating
     gemini_glossary_pass: bool = True
     # Local PC pre-processing (frame pre-filtering, Whisper VRAM unload, local gender pre-tagging)

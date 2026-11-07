@@ -36,6 +36,7 @@ _ADDED_COLUMNS = {
         "onscreen_position": "VARCHAR NOT NULL DEFAULT 'top_center'",
         "convert_to_metric": "BOOLEAN NOT NULL DEFAULT 0",
         "remove_sdh_speakers": "BOOLEAN NOT NULL DEFAULT 0",
+        "skip_end_credits": "BOOLEAN NOT NULL DEFAULT 1",
         "supplement_with_whisper": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "subtitle_segments": {

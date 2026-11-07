@@ -16,6 +16,7 @@ import type {
   ParsedSubtitles,
   InsertDraft,
   SegmentCreate,
+  ProblemFilter,
 } from '../types';
 
 const CONFIG_STORAGE_KEY = 'subforge.pipelineConfig';
@@ -36,6 +37,7 @@ const DEFAULT_CONFIG: JobConfig = {
   onscreen_position: 'top_center',
   convert_to_metric: false,
   remove_sdh_speakers: false,
+  skip_end_credits: true,
   enable_translation: true,
   target_language: 'Hebrew',
   gemini_api_key_override: '',
@@ -117,6 +119,8 @@ interface JobState {
   stageMessage: string | null;
   videoCurrentTime: number;
   selectedSegmentIndex: number | null;
+  problemFilter: ProblemFilter;
+  setProblemFilter: (filter: ProblemFilter) => void;
   seekRequest: SeekRequest | null;
   subtitleOverlayMode: 'original' | 'translated' | 'dual';
   applyRtlExport: boolean;
@@ -283,6 +287,8 @@ export const useJobStore = create<JobState>((set, get) => {
     stageMessage: null,
     videoCurrentTime: 0,
     selectedSegmentIndex: null,
+    problemFilter: 'NONE',
+    setProblemFilter: (problemFilter) => set({ problemFilter }),
     seekRequest: null,
     subtitleOverlayMode: 'dual',
     applyRtlExport: true,
@@ -403,6 +409,7 @@ export const useJobStore = create<JobState>((set, get) => {
           isLoading: false,
           insertDraft: null,
           selectedSegmentIndex: null,
+          problemFilter: 'NONE',
           videoCurrentTime: 0,
           seekRequest: null,
           stageMessage: null,
@@ -433,6 +440,7 @@ export const useJobStore = create<JobState>((set, get) => {
         syncFile: null,
         syncLanguage: null,
         selectedSegmentIndex: null,
+        problemFilter: 'NONE',
         seekRequest: null,
         stageMessage: null,
       });

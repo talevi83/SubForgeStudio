@@ -92,6 +92,8 @@ class Job(SQLModel, table=True):
     convert_to_metric: bool = Field(default=False)
     # Remove hearing-impaired SDH speaker tags/brackets in dialogue while preserving on-screen titles
     remove_sdh_speakers: bool = Field(default=False)
+    # Skip end credits rolls/songs in the tail of the video while preserving mid/post-credits scenes
+    skip_end_credits: bool = Field(default=True)
     enable_translation: bool = Field(default=False)
     target_language: str = Field(default="Hebrew")
     gemini_model: str = Field(default="gemini-3.8-flash")

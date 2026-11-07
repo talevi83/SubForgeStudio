@@ -51,6 +51,7 @@ class PipelineContext:
     allow_onscreen_overlap: bool = True
     convert_to_metric: bool = False
     remove_sdh_speakers: bool = False
+    skip_end_credits: bool = True
     enable_translation: bool = False
     target_language: str = "Hebrew"
     gemini_model: str = "gemini-3.8-flash"
@@ -78,6 +79,8 @@ class PipelineContext:
     foreign_ocr_segments: List[Dict[str, Any]] = field(default_factory=list)
     # Background ffmpeg frame sampling started early so it overlaps with transcription
     frame_task: Optional[Any] = None
+    # Visual end-credits roll spans [(start, end), ...] detected from grayscale thumbnails
+    visual_credit_spans: List[Any] = field(default_factory=list)
     # Exact Gemini token usage / cost of this run, per stage
     usage: Any = None
     # Flex tier bookkeeping shared by every Gemini call of this run (see providers/gemini_calls.py)

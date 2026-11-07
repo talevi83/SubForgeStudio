@@ -491,6 +491,24 @@ export const PipelineConfig: React.FC = () => {
                   </span>
                 </div>
               </label>
+
+              <label className="flex items-start gap-2.5 pt-2.5 border-t border-line/40 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={pipelineConfig.skip_end_credits ?? true}
+                  onChange={(e) => updatePipelineConfig({ skip_end_credits: e.target.checked })}
+                  className="mt-0.5 rounded border-zinc-700 text-indigo-500 focus:ring-indigo-400 bg-zinc-800 cursor-pointer"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-zinc-200 font-medium text-xs flex items-center gap-1.5">
+                    <span>🎬</span>
+                    <span>{t('config.skipEndCreditsTitle')}</span>
+                  </span>
+                  <span className="text-zinc-400 text-[11px] leading-relaxed block">
+                    {t('config.skipEndCreditsDescription')}
+                  </span>
+                </div>
+              </label>
             </div>
           ) : (
             <div className="py-6 text-center text-zinc-500 text-xs">{t('config.translationDisabled')}</div>

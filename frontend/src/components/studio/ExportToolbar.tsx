@@ -17,6 +17,9 @@ export const ExportToolbar: React.FC = () => {
   const systemInfo = useJobStore((s) => s.systemInfo);
   const keyOverride = useJobStore((s) => s.pipelineConfig.gemini_api_key_override);
   const saveGlossary = useJobStore((s) => s.saveGlossary);
+  const problemFilter = useJobStore((s) => s.problemFilter);
+  const setProblemFilter = useJobStore((s) => s.setProblemFilter);
+  const setSelectedSegmentIndex = useJobStore((s) => s.setSelectedSegmentIndex);
   const [targetLanguage, setTargetLanguage] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const t = useT();
@@ -140,8 +143,21 @@ export const ExportToolbar: React.FC = () => {
       {/* Export */}
       <div className="flex items-center gap-2 flex-wrap">
         {untranslatedCount > 0 && (
-          <span
-            className="flex items-center gap-1 text-[11px] text-amber-300 me-1"
+          <button
+            type="button"
+            onClick={() => {
+              const nextFilter = problemFilter === 'UNTRANSLATED' ? 'NONE' : 'UNTRANSLATED';
+              setProblemFilter(nextFilter);
+              if (nextFilter === 'UNTRANSLATED') {
+                const firstUntranslated = activeJob.segments.find((s) => s.translation_failed || !s.translated_text?.trim());
+                if (firstUntranslated) setSelectedSegmentIndex(firstUntranslated.index);
+              }
+            }}
+            className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border transition-colors cursor-pointer me-1 ${
+              problemFilter === 'UNTRANSLATED'
+                ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 font-semibold'
+                : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300'
+            }`}
             data-testid="untranslated-note"
             title={t('toolbar.untranslatedTitle')}
           >
@@ -149,7 +165,7 @@ export const ExportToolbar: React.FC = () => {
             {busy
               ? t('toolbar.stillTranslating', { count: untranslatedCount })
               : t('toolbar.untranslated', { count: untranslatedCount })}
-          </span>
+          </button>
         )}
         <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none me-2" title={t('toolbar.rtlTitle')}>
           <input

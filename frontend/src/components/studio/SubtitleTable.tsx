@@ -1,24 +1,50 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { useJobStore } from '../../store/useJobStore';
 import { isActiveStatus, isRtlLanguage } from '../../types';
-import type { Gender, SubtitleSegment, ThinkingLevel } from '../../types';
+import type { Gender, ProblemFilter, SubtitleSegment, ThinkingLevel } from '../../types';
 import { SubtitleRow } from './SubtitleRow';
 import { RowTranslateDialog } from './RowTranslateDialog';
 import { InsertSegmentDialog } from './InsertSegmentDialog';
-import { findSegmentAt } from '../../utils/time';
+import { findSegmentAt, parseTimecode } from '../../utils/time';
 import { useT } from '../../i18n';
-import { Search, Replace, AlertTriangle, Timer, Loader2, Undo2, ShieldCheck, X, Plus, Tag, Trash2, Regex } from 'lucide-react';
+import {
+  Search,
+  Replace,
+  AlertTriangle,
+  Timer,
+  Loader2,
+  Undo2,
+  ShieldCheck,
+  X,
+  Plus,
+  Tag,
+  Trash2,
+  Regex,
+  ChevronsDown,
+  ChevronsUp,
+  ArrowUpToLine,
+  ArrowDownToLine,
+} from 'lucide-react';
 import { api } from '../../services/api';
 import type { QAIssue } from '../../types';
 
 /** Clicking a row starts playback this many seconds before the subtitle, to hear the lead-in */
 const SEEK_LEAD_IN_S = 1.5;
 
+/** Matches 3+ consecutive ASCII Latin letters left inside an RTL translation */
+const LATIN_WORD_RE = /[A-Za-z]{3,}/;
+
+/** Virtual table constants: only rows near the viewport are mounted in the DOM */
+const ESTIMATED_ROW_HEIGHT = 64;
+const OVERSCAN_ROWS = 12;
+const VIRTUALIZE_THRESHOLD = 80;
+
 export const SubtitleTable: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
-  const videoCurrentTime = useJobStore((s) => s.videoCurrentTime);
   const selectedSegmentIndex = useJobStore((s) => s.selectedSegmentIndex);
   const setSelectedSegmentIndex = useJobStore((s) => s.setSelectedSegmentIndex);
+  const problemFilter = useJobStore((s) => s.problemFilter);
+  const setProblemFilter = useJobStore((s) => s.setProblemFilter);
   const seekTo = useJobStore((s) => s.seekTo);
   const updateSegment = useJobStore((s) => s.updateSegment);
   const replaceAll = useJobStore((s) => s.replaceAll);
@@ -36,17 +62,23 @@ export const SubtitleTable: React.FC = () => {
   const t = useT();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [replaceTerm, setReplaceTerm] = useState('');
   const [targetColumn, setTargetColumn] = useState<'translated' | 'original'>('translated');
   const [useRegex, setUseRegex] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [onlyProblems, setOnlyProblems] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>('ALL');
   const [replaceResult, setReplaceResult] = useState<string | null>(null);
+  const [jumpInput, setJumpInput] = useState('');
 
   const activeRowRef = useRef<HTMLTableRowElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(640);
+  const scrollRafRef = useRef<number | null>(null);
+
   const [checked, setChecked] = useState<Set<number>>(new Set());
-  const [lastChecked, setLastChecked] = useState<number | null>(null);
+  const lastCheckedRef = useRef<number | null>(null);
   const [rowsDialog, setRowsDialog] = useState(false);
   const [qaIssues, setQaIssues] = useState<QAIssue[] | null>(null);
   const [qaBusy, setQaBusy] = useState(false);
@@ -59,22 +91,64 @@ export const SubtitleTable: React.FC = () => {
     [activeJob?.segments]
   );
   const isRtl = isRtlLanguage(activeJob?.target_language);
+  const jobFinished = !!activeJob && !isActiveStatus(activeJob.status);
   // Only promise "Translating…" while a translation is actually running
   const translationEnabled = !!activeJob?.enable_translation && isActiveStatus(activeJob?.status);
+  const hasTranslationExpectation =
+    !!activeJob?.enable_translation || segments.some((s) => !!s.translated_text || !!s.translation_failed);
 
-  const activeIndex = useMemo(() => {
-    const i = findSegmentAt(segments, videoCurrentTime);
-    return i >= 0 ? segments[i].index : null;
-  }, [segments, videoCurrentTime]);
+  // Subscribe only to the primitive active subtitle index (not raw videoCurrentTime ticks)
+  // so the table only re-renders when the active subtitle actually changes (~every 3-4s).
+  const activeIndex = useJobStore(
+    useCallback(
+      (s) => {
+        const i = findSegmentAt(segments, s.videoCurrentTime);
+        return i >= 0 ? segments[i].index : null;
+      },
+      [segments]
+    )
+  );
 
   // A synced file also flags lines that were placed with low confidence
   const isSyncJob = activeJob?.job_kind === 'sync';
-  const isProblem = useCallback(
+
+  const isUntranslated = useCallback(
     (s: SubtitleSegment) =>
-      !!s.translation_failed || (s.cps ?? 0) > maxCps || (isSyncJob && (s.confidence ?? 1) < 0.5),
+      !!s.translation_failed || (hasTranslationExpectation && !translationEnabled && !s.translated_text?.trim()),
+    [hasTranslationExpectation, translationEnabled]
+  );
+
+  const hasLatinLeftover = useCallback(
+    (s: SubtitleSegment) => isRtl && !!s.translated_text && LATIN_WORD_RE.test(s.translated_text),
+    [isRtl]
+  );
+
+  const isHighCps = useCallback(
+    (s: SubtitleSegment) => (s.cps ?? 0) > maxCps || (isSyncJob && (s.confidence ?? 1) < 0.5),
     [maxCps, isSyncJob]
   );
-  const problemCount = useMemo(() => segments.filter(isProblem).length, [segments, isProblem]);
+
+  const isAnyProblem = useCallback(
+    (s: SubtitleSegment) => isUntranslated(s) || hasLatinLeftover(s) || isHighCps(s),
+    [isUntranslated, hasLatinLeftover, isHighCps]
+  );
+
+  const problemStats = useMemo(() => {
+    let all = 0;
+    let untranslated = 0;
+    let latin = 0;
+    let highCps = 0;
+    for (const s of segments) {
+      const u = isUntranslated(s);
+      const l = hasLatinLeftover(s);
+      const c = isHighCps(s);
+      if (u) untranslated++;
+      if (l) latin++;
+      if (c) highCps++;
+      if (u || l || c) all++;
+    }
+    return { all, untranslated, latin, highCps };
+  }, [segments, isUntranslated, hasLatinLeftover, isHighCps]);
 
   const tagCounts = useMemo(() => {
     let onscreen = 0;
@@ -93,23 +167,27 @@ export const SubtitleTable: React.FC = () => {
   }, [segments]);
 
   const { regex: searchRegex, error: regexError } = useMemo(() => {
-    if (!useRegex || !searchTerm) return { regex: null, error: null };
+    if (!useRegex || !deferredSearchTerm) return { regex: null, error: null };
     try {
-      const match = searchTerm.match(/^\/(.*)\/([a-z]*)$/s);
+      const match = deferredSearchTerm.match(/^\/(.*)\/([a-z]*)$/s);
       if (match) {
         // Strip 'g' flag so RegExp.prototype.test() remains stateless across segments
         const flags = match[2] ? match[2].replace(/g/g, '') : 'i';
         return { regex: new RegExp(match[1], flags), error: null };
       }
-      return { regex: new RegExp(searchTerm, 'i'), error: null };
+      return { regex: new RegExp(deferredSearchTerm, 'i'), error: null };
     } catch (err) {
       return { regex: null, error: err instanceof Error ? err.message : String(err) };
     }
-  }, [useRegex, searchTerm]);
+  }, [useRegex, deferredSearchTerm]);
 
   const filteredSegments = useMemo(() => {
     let list = segments;
-    if (onlyProblems) list = list.filter(isProblem);
+    if (problemFilter === 'ALL_PROBLEMS') list = list.filter(isAnyProblem);
+    else if (problemFilter === 'UNTRANSLATED') list = list.filter(isUntranslated);
+    else if (problemFilter === 'LATIN_LEFTOVER') list = list.filter(hasLatinLeftover);
+    else if (problemFilter === 'HIGH_CPS') list = list.filter(isHighCps);
+
     if (tagFilter !== 'ALL') {
       if (tagFilter === 'TAGGED') {
         list = list.filter((s) => s.segment_type && s.segment_type !== 'DIALOGUE');
@@ -117,23 +195,41 @@ export const SubtitleTable: React.FC = () => {
         list = list.filter((s) => s.segment_type === tagFilter);
       }
     }
-    if (!searchTerm) return list;
+    if (!deferredSearchTerm) return list;
     if (useRegex) {
       if (regexError || !searchRegex) return [];
       return list.filter(
         (s) => searchRegex.test(s.original_text) || (s.translated_text ? searchRegex.test(s.translated_text) : false)
       );
     }
-    if (!searchTerm.trim()) return list;
-    const term = searchTerm.toLowerCase();
+    if (!deferredSearchTerm.trim()) return list;
+    const term = deferredSearchTerm.toLowerCase();
     return list.filter(
       (s) => s.original_text.toLowerCase().includes(term) || s.translated_text?.toLowerCase().includes(term)
     );
-  }, [segments, searchTerm, useRegex, searchRegex, regexError, onlyProblems, isProblem, tagFilter]);
+  }, [
+    segments,
+    deferredSearchTerm,
+    useRegex,
+    searchRegex,
+    regexError,
+    problemFilter,
+    isAnyProblem,
+    isUntranslated,
+    hasLatinLeftover,
+    isHighCps,
+    tagFilter,
+  ]);
 
+  const filteredSegmentsRef = useRef<SubtitleSegment[]>(filteredSegments);
+  useEffect(() => {
+    filteredSegmentsRef.current = filteredSegments;
+  }, [filteredSegments]);
+
+  const onlyProblems = problemFilter !== 'NONE';
   // Moving rows only makes sense in the full, time-ordered list of a finished job
-  const canDrag = !!activeJob && !isActiveStatus(activeJob.status) && !searchTerm && !onlyProblems && tagFilter === 'ALL' && !timingBusy;
-  const canRecheck = !!activeJob && !isActiveStatus(activeJob.status) && segments.length > 0;
+  const canDrag = !!activeJob && jobFinished && !searchTerm && !onlyProblems && tagFilter === 'ALL' && !timingBusy;
+  const canRecheck = !!activeJob && jobFinished && segments.length > 0;
 
   const handleDragStart = useCallback((id: number) => setDragId(id), []);
   const handleDragOver = useCallback((id: number) => setOverId((prev) => (prev === id ? prev : id)), []);
@@ -155,12 +251,11 @@ export const SubtitleTable: React.FC = () => {
   const dragFromPos = dragId === null ? -1 : segments.findIndex((s) => s.id === dragId);
 
   const isLive = segments.length > 0 && segments.some((s) => !s.id);
-  const jobFinished = !!activeJob && !isActiveStatus(activeJob.status);
   const canSelect = jobFinished && !isLive;
   // Selection belongs to the job being shown and goes away when a run starts
   useEffect(() => {
     setChecked(new Set()); // eslint-disable-line react-hooks/set-state-in-effect
-    setLastChecked(null);
+    lastCheckedRef.current = null;
   }, [activeJob?.id, jobFinished]);
 
   const selectableFilteredIds = useMemo(
@@ -192,27 +287,85 @@ export const SubtitleTable: React.FC = () => {
     });
   }, [selectableFilteredIds]);
 
-  const handleCheck = useCallback(
-    (id: number, shift: boolean) => {
-      setChecked((prev) => {
-        const next = new Set(prev);
-        if (shift && lastChecked !== null) {
-          const a = filteredSegments.findIndex((s) => s.id === lastChecked);
-          const b = filteredSegments.findIndex((s) => s.id === id);
-          if (a >= 0 && b >= 0) {
-            const [lo, hi] = a < b ? [a, b] : [b, a];
-            for (let i = lo; i <= hi; i++) if (filteredSegments[i].id) next.add(filteredSegments[i].id!);
-            return next;
+  // Stable reference (never invalidates React.memo across 1000+ rows when checking a box)
+  const handleCheck = useCallback((id: number, shift: boolean) => {
+    const list = filteredSegmentsRef.current;
+    const prevLast = lastCheckedRef.current;
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (shift && prevLast !== null) {
+        const a = list.findIndex((s) => s.id === prevLast);
+        const b = list.findIndex((s) => s.id === id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i++) {
+            if (list[i].id) next.add(list[i].id!);
           }
+          return next;
         }
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-      setLastChecked(id);
-    },
-    [lastChecked, filteredSegments]
-  );
+      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    lastCheckedRef.current = id;
+  }, []);
+
+  // Select from `id` through the end of the currently displayed list in one click
+  const handleSelectToEnd = useCallback((id: number) => {
+    const list = filteredSegmentsRef.current;
+    const startIdx = list.findIndex((s) => s.id === id);
+    if (startIdx < 0) return;
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (let i = startIdx; i < list.length; i++) {
+        if (list[i].id) next.add(list[i].id!);
+      }
+      return next;
+    });
+    lastCheckedRef.current = id;
+  }, []);
+
+  // Select from the beginning of the displayed list up to `id` in one click
+  const handleSelectFromStart = useCallback((id: number) => {
+    const list = filteredSegmentsRef.current;
+    const endIdx = list.findIndex((s) => s.id === id);
+    if (endIdx < 0) return;
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (let i = 0; i <= endIdx; i++) {
+        if (list[i].id) next.add(list[i].id!);
+      }
+      return next;
+    });
+    lastCheckedRef.current = id;
+  }, []);
+
+  const checkedRangeBounds = useMemo(() => {
+    if (checked.size === 0 || filteredSegments.length === 0) return null;
+    let firstPos = -1;
+    let lastPos = -1;
+    for (let i = 0; i < filteredSegments.length; i++) {
+      const id = filteredSegments[i].id;
+      if (id && checked.has(id)) {
+        if (firstPos === -1) firstPos = i;
+        lastPos = i;
+      }
+    }
+    if (firstPos === -1) return null;
+    const firstSeg = filteredSegments[firstPos];
+    const lastSeg = filteredSegments[lastPos];
+    const toEndCount = filteredSegments.length - firstPos;
+    const fromStartCount = lastPos + 1;
+    return {
+      firstSeg,
+      lastSeg,
+      toEndCount,
+      fromStartCount,
+      canExpandToEnd: toEndCount > checked.size,
+      canExpandFromStart: fromStartCount > checked.size && lastPos > 0,
+    };
+  }, [checked, filteredSegments]);
 
   const translateRows = (opts: {
     speaker?: Gender | null;
@@ -275,20 +428,143 @@ export const SubtitleTable: React.FC = () => {
     [setSelectedSegmentIndex, seekTo]
   );
 
+  // Track scroll container height for virtualization
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setViewportHeight(el.clientHeight || 640);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = entry.contentRect.height;
+        if (h > 0) setViewportHeight(h);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
+
+  const handleTableScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setScrollTop(top);
+    });
+  }, []);
+
+  const scrollToListIndex = useCallback((listIdx: number) => {
+    const el = scrollContainerRef.current;
+    if (!el || listIdx < 0) return;
+    const targetTop = listIdx * ESTIMATED_ROW_HEIGHT;
+    const viewH = el.clientHeight || 640;
+    const desired = Math.max(0, targetTop - Math.floor(viewH * 0.35));
+    el.scrollTop = desired;
+    setScrollTop(desired);
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    setScrollTop(0);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = maxTop;
+    setScrollTop(maxTop);
+  }, []);
+
+  const handleJumpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const raw = jumpInput.trim().replace(/^#/, '');
+    if (!raw || filteredSegments.length === 0) return;
+    e.preventDefault();
+
+    // If input contains a colon (e.g. "1:15:00" or "45:30"), jump to timestamp
+    if (raw.includes(':')) {
+      const sec = parseTimecode(raw);
+      if (sec !== null) {
+        let bestIdx = 0;
+        for (let i = 0; i < filteredSegments.length; i++) {
+          if (filteredSegments[i].start_time >= sec) {
+            bestIdx = i;
+            break;
+          }
+          bestIdx = i;
+        }
+        const seg = filteredSegments[bestIdx];
+        scrollToListIndex(bestIdx);
+        setSelectedSegmentIndex(seg.index);
+        seekTo(seg.start_time, false);
+        setJumpInput('');
+      }
+      return;
+    }
+
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num <= 0) return;
+    let bestIdx = filteredSegments.findIndex((s) => s.index >= num);
+    if (bestIdx < 0) bestIdx = filteredSegments.length - 1;
+    const seg = filteredSegments[bestIdx];
+    scrollToListIndex(bestIdx);
+    setSelectedSegmentIndex(seg.index);
+    setJumpInput('');
+  };
+
   // Follow playback — only when the active subtitle changes, not on every time tick
   useEffect(() => {
-    if (autoScroll && activeIndex !== null && activeRowRef.current) {
-      activeRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (!autoScroll || activeIndex === null) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const idx = filteredSegmentsRef.current.findIndex((s) => s.index === activeIndex);
+    if (idx < 0) return;
+    const rowTop = idx * ESTIMATED_ROW_HEIGHT;
+    const rowBottom = rowTop + ESTIMATED_ROW_HEIGHT;
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight - 40;
+    if (rowTop < viewTop + 36 || rowBottom > viewBottom) {
+      const nextTop = Math.max(0, rowTop - Math.floor(el.clientHeight * 0.3));
+      el.scrollTop = nextTop;
+      setScrollTop(nextTop);
     }
   }, [activeIndex, autoScroll]);
+
+  const isVirtualized = filteredSegments.length > VIRTUALIZE_THRESHOLD;
+  const totalRows = filteredSegments.length;
+  const startIndex = isVirtualized
+    ? Math.max(0, Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - OVERSCAN_ROWS)
+    : 0;
+  const visibleCount = isVirtualized
+    ? Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT) + OVERSCAN_ROWS * 2
+    : totalRows;
+  const endIndex = isVirtualized ? Math.min(totalRows, startIndex + visibleCount) : totalRows;
+  const topSpacerHeight = isVirtualized ? startIndex * ESTIMATED_ROW_HEIGHT : 0;
+  const bottomSpacerHeight = isVirtualized ? Math.max(0, (totalRows - endIndex) * ESTIMATED_ROW_HEIGHT) : 0;
+  const visibleSegments = isVirtualized ? filteredSegments.slice(startIndex, endIndex) : filteredSegments;
 
   const insertDraft = useJobStore((s) => s.insertDraft);
   const openInsert = useJobStore((s) => s.openInsert);
   const videoCurrentTimeNow = () => useJobStore.getState().videoCurrentTime;
-  const canInsert = !!activeJob && !isActiveStatus(activeJob.status) && !isLive;
+  const canInsert = !!activeJob && jobFinished && !isLive;
   const insertAfter = useCallback(
     (seg: SubtitleSegment) => openInsert({ time: useJobStore.getState().videoCurrentTime, afterId: seg.id }),
     [openInsert]
+  );
+  const handleDeleteRow = useCallback(
+    (seg: SubtitleSegment) => {
+      if (seg.id) void deleteSegment(seg.id);
+    },
+    [deleteSegment]
   );
 
   const handleDeleteSelected = async () => {
@@ -361,8 +637,8 @@ export const SubtitleTable: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400 px-1">
+          <div className="flex items-center gap-3 flex-wrap">
             <span>
               {useRegex && regexError ? (
                 <span className="text-rose-400 font-medium flex items-center gap-1">
@@ -429,18 +705,99 @@ export const SubtitleTable: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Quick jump to line # or timestamp + Top/Bottom scroll buttons */}
+            {filteredSegments.length > 20 && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={jumpInput}
+                  onChange={(e) => setJumpInput(e.target.value)}
+                  onKeyDown={handleJumpKeyDown}
+                  placeholder={t('table.jumpPlaceholder')}
+                  title={t('table.jumpTitle')}
+                  aria-label={t('table.jumpTitle')}
+                  data-testid="jump-to-row-input"
+                  className="w-24 bg-surface/80 border border-line rounded-md px-2 py-0.5 text-[11px] font-mono text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={scrollToTop}
+                  title={t('table.scrollToTopTitle')}
+                  aria-label={t('table.scrollToTopTitle')}
+                  className="p-1 rounded border border-line bg-surface/70 text-zinc-400 hover:text-white hover:border-indigo-500/60 cursor-pointer"
+                >
+                  <ArrowUpToLine className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  title={t('table.scrollToBottomTitle')}
+                  aria-label={t('table.scrollToBottomTitle')}
+                  data-testid="scroll-to-bottom"
+                  className="p-1 rounded border border-line bg-surface/70 text-zinc-400 hover:text-white hover:border-indigo-500/60 cursor-pointer"
+                >
+                  <ArrowDownToLine className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none" title={isSyncJob ? t('table.onlyProblemsSyncTitle') : t('table.onlyProblemsTitle')}>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Rich problem filter (checkbox + category selector for untranslated, leftover English, CPS) */}
+            <div
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs transition-colors ${
+                problemFilter !== 'NONE'
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-300 font-medium'
+                  : 'border-line bg-surface/70 text-zinc-400'
+              }`}
+              title={isSyncJob ? t('table.onlyProblemsSyncTitle') : t('table.onlyProblemsTitle')}
+            >
               <input
                 type="checkbox"
-                checked={onlyProblems}
-                onChange={(e) => setOnlyProblems(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-zinc-700 text-indigo-600 bg-zinc-800"
+                data-testid="only-problems-checkbox"
+                checked={problemFilter !== 'NONE'}
+                onChange={(e) => setProblemFilter(e.target.checked ? 'ALL_PROBLEMS' : 'NONE')}
+                className="w-3.5 h-3.5 rounded border-zinc-700 text-indigo-600 bg-zinc-800 cursor-pointer"
               />
-              <AlertTriangle className="w-3 h-3 text-amber-400" />
-              <span>{t('table.onlyProblems', { count: problemCount })}</span>
-            </label>
+              <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+              <select
+                aria-label={t('table.problemFilterLabel')}
+                data-testid="problem-filter-select"
+                value={problemFilter}
+                onChange={(e) => setProblemFilter(e.target.value as ProblemFilter)}
+                className="bg-transparent border-0 text-inherit text-[11px] font-inherit focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="NONE" className="bg-zinc-900 text-zinc-300">
+                  {t('table.onlyProblems', { count: problemStats.all })}
+                </option>
+                <option value="ALL_PROBLEMS" className="bg-zinc-900 text-zinc-300">
+                  ⚠️ {t('table.problemAll', { count: problemStats.all })}
+                </option>
+                <option value="UNTRANSLATED" className="bg-zinc-900 text-zinc-300">
+                  ❌ {t('table.problemUntranslated', { count: problemStats.untranslated })}
+                </option>
+                {(isRtl || problemStats.latin > 0) && (
+                  <option value="LATIN_LEFTOVER" className="bg-zinc-900 text-zinc-300">
+                    🔤 {t('table.problemLatin', { count: problemStats.latin })}
+                  </option>
+                )}
+                <option value="HIGH_CPS" className="bg-zinc-900 text-zinc-300">
+                  ⚡ {t('table.problemHighCps', { count: problemStats.highCps })}
+                </option>
+              </select>
+              {problemFilter !== 'NONE' && (
+                <button
+                  type="button"
+                  onClick={() => setProblemFilter('NONE')}
+                  className="p-0.5 rounded hover:bg-white/10 text-inherit opacity-70 hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
             {canRecheck && (
               <span className="flex items-center gap-2">
                 {timingNote !== null && !timingBusy && (
@@ -525,8 +882,14 @@ export const SubtitleTable: React.FC = () => {
                 <li key={`${i.segment_id}-${k}`}>
                   <button
                     onClick={() => {
-                      const seg = segments.find((s) => s.id === i.segment_id);
-                      if (seg) onSelect(seg);
+                      const idx = filteredSegments.findIndex((s) => s.id === i.segment_id);
+                      if (idx >= 0) {
+                        scrollToListIndex(idx);
+                        onSelect(filteredSegments[idx]);
+                      } else {
+                        const seg = segments.find((s) => s.id === i.segment_id);
+                        if (seg) onSelect(seg);
+                      }
                     }}
                     className="text-zinc-300 hover:text-white text-start"
                   >
@@ -545,6 +908,37 @@ export const SubtitleTable: React.FC = () => {
           data-testid="rows-bar"
         >
           <span className="text-indigo-200 font-medium">{t('table.selected', { count: checked.size })}</span>
+
+          {/* Fast 1-click range expansion: from checked row to end, or from start to checked row */}
+          {checkedRangeBounds?.canExpandToEnd && checkedRangeBounds.firstSeg.id && (
+            <button
+              type="button"
+              onClick={() => handleSelectToEnd(checkedRangeBounds.firstSeg.id!)}
+              data-testid="select-checked-to-end"
+              className="flex items-center gap-1 px-2 py-1 rounded border border-indigo-400/40 bg-indigo-500/15 text-indigo-200 hover:bg-indigo-500/25 cursor-pointer"
+            >
+              <ChevronsDown className="w-3 h-3" />
+              {t('table.selectFromToEnd', {
+                index: checkedRangeBounds.firstSeg.index,
+                count: checkedRangeBounds.toEndCount,
+              })}
+            </button>
+          )}
+          {checkedRangeBounds?.canExpandFromStart && checkedRangeBounds.lastSeg.id && (
+            <button
+              type="button"
+              onClick={() => handleSelectFromStart(checkedRangeBounds.lastSeg.id!)}
+              data-testid="select-start-to-checked"
+              className="flex items-center gap-1 px-2 py-1 rounded border border-line text-zinc-300 hover:border-indigo-500/60 hover:text-white cursor-pointer"
+            >
+              <ChevronsUp className="w-3 h-3" />
+              {t('table.selectFromStartTo', {
+                index: checkedRangeBounds.lastSeg.index,
+                count: checkedRangeBounds.fromStartCount,
+              })}
+            </button>
+          )}
+
           {canTranslate && (
             <>
               <button
@@ -618,7 +1012,7 @@ export const SubtitleTable: React.FC = () => {
         />
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} onScroll={handleTableScroll} className="flex-1 overflow-y-auto">
         <table className="w-full text-start border-collapse text-xs">
           <thead className="bg-sunken text-zinc-400 sticky top-0 z-10 border-b border-line uppercase font-semibold text-[10px] tracking-wider select-none">
             <tr>
@@ -661,45 +1055,55 @@ export const SubtitleTable: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              filteredSegments.map((seg) => {
-                const isActive = seg.index === activeIndex;
-                return (
-                  <SubtitleRow
-                    key={seg.id ?? `live-${seg.index}`}
-                    seg={seg}
-                    isActive={isActive}
-                    isSelected={selectedSegmentIndex === seg.index}
-                    isRtl={isRtl}
-                    translationEnabled={translationEnabled}
-                    maxCps={maxCps}
-                    onSelect={onSelect}
-                    onSave={updateSegment}
-                    rowRef={isActive ? activeRowRef : undefined}
-                    checked={checked.has(seg.id ?? -1)}
-                    onCheck={canSelect ? handleCheck : undefined}
-                    onInsertAfter={canInsert ? insertAfter : undefined}
-                    onDelete={canInsert ? (s) => s.id && void deleteSegment(s.id) : undefined}
-                    onFilterTag={setTagFilter}
-                    dnd={
-                      canDrag && seg.id
-                        ? {
-                            isDragging: dragId === seg.id,
-                            drop:
-                              dragId !== null && overId === seg.id && dragId !== seg.id
-                                ? seg.index > (segments[dragFromPos]?.index ?? 0)
-                                  ? 'after'
-                                  : 'before'
-                                : null,
-                            onDragStart: handleDragStart,
-                            onDragOver: handleDragOver,
-                            onDrop: handleDrop,
-                            onDragEnd: handleDragEnd,
-                          }
-                        : undefined
-                    }
-                  />
-                );
-              })
+              <>
+                {topSpacerHeight > 0 && (
+                  <tr aria-hidden="true" className="border-0">
+                    <td colSpan={5} style={{ height: `${topSpacerHeight}px`, padding: 0, border: 0 }} />
+                  </tr>
+                )}
+                {visibleSegments.map((seg) => {
+                  const isActive = seg.index === activeIndex;
+                  const rowCanDrag = canDrag && !!seg.id;
+                  const dropPosition =
+                    rowCanDrag && dragId !== null && overId === seg.id && dragId !== seg.id
+                      ? seg.index > (segments[dragFromPos]?.index ?? 0)
+                        ? 'after'
+                        : 'before'
+                      : null;
+                  return (
+                    <SubtitleRow
+                      key={seg.id ?? `live-${seg.index}`}
+                      seg={seg}
+                      isActive={isActive}
+                      isSelected={selectedSegmentIndex === seg.index}
+                      isRtl={isRtl}
+                      translationEnabled={translationEnabled}
+                      maxCps={maxCps}
+                      onSelect={onSelect}
+                      onSave={updateSegment}
+                      rowRef={isActive ? activeRowRef : undefined}
+                      checked={checked.has(seg.id ?? -1)}
+                      onCheck={canSelect ? handleCheck : undefined}
+                      onSelectToEnd={canSelect ? handleSelectToEnd : undefined}
+                      onInsertAfter={canInsert ? insertAfter : undefined}
+                      onDelete={canInsert ? handleDeleteRow : undefined}
+                      onFilterTag={setTagFilter}
+                      canDrag={rowCanDrag}
+                      isDragging={rowCanDrag && dragId === seg.id}
+                      dropPosition={dropPosition}
+                      onDragStart={rowCanDrag ? handleDragStart : undefined}
+                      onDragOver={rowCanDrag ? handleDragOver : undefined}
+                      onDrop={rowCanDrag ? handleDrop : undefined}
+                      onDragEnd={rowCanDrag ? handleDragEnd : undefined}
+                    />
+                  );
+                })}
+                {bottomSpacerHeight > 0 && (
+                  <tr aria-hidden="true" className="border-0">
+                    <td colSpan={5} style={{ height: `${bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
