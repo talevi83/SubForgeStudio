@@ -1,13 +1,13 @@
-# SubForge Studio — Technical Specification (`SPEC.md`)
+# SubBuild Studio — Technical Specification (`SPEC.md`)
 
-> Architecture, technology stack and design decisions of SubForge Studio as it is built today.
+> Architecture, technology stack and design decisions of SubBuild Studio as it is built today.
 > For setup, usage, every setting and the full endpoint list see [`README.md`](README.md); this document
 > explains **how the system is put together and why**. It was rewritten from the original build
 > specification (phases 1–4) to match the current code.
 
 ## 1. Overview
 
-**SubForge Studio** is a local application that turns a video file into finished subtitles:
+**SubBuild Studio** is a local application that turns a video file into finished subtitles:
 
 1. **Transcribes** the audio on the user's own machine (faster-whisper, word-level timestamps, GPU or CPU).
 2. **Refines** Whisper's output into broadcast-style subtitles (sentence re-segmentation, line limits, reading speed).
@@ -16,7 +16,7 @@
 5. Offers an **editing studio** (synced player, inline edit, add/move/re-time lines, quality checks) and **SRT/VTT export**.
 
 It runs three ways from the same code: as a **local web app** (browser), as a **desktop window** from source (`run.bat` / `run.sh`), and
-as a **standalone Windows program** (`SubForge Studio.exe`, PyInstaller). Nothing leaves the machine except the text
+as a **standalone Windows program** (`SubBuild Studio.exe`, PyInstaller). Nothing leaves the machine except the text
 and frames explicitly sent to Gemini; the video itself is never uploaded anywhere.
 
 ### Core engineering rules
@@ -42,7 +42,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 | Layer | Technology | Role |
 |---|---|---|
 | Backend framework | **Python 3.11+ (3.12 in `run.bat`), FastAPI, Uvicorn** | REST API, WebSocket, static hosting of the built frontend |
-| Persistence | **SQLModel / SQLAlchemy on SQLite** (`storage/subforge.db`) | Jobs and subtitle segments; additive column migration at startup |
+| Persistence | **SQLModel / SQLAlchemy on SQLite** (`storage/subbuild.db`) | Jobs and subtitle segments; additive column migration at startup |
 | Configuration | **pydantic-settings** (`.env`) + `storage/settings.json` | First-run defaults vs. user choices made in Settings |
 | Speech-to-text | **faster-whisper** (CTranslate2) + **Silero VAD** | Local transcription, word timestamps, speech maps, language detection |
 | GPU runtime | **NVIDIA cuBLAS / cuDNN wheels** (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) | CUDA FP16 without a system CUDA install; CPU INT8 fallback |
@@ -52,7 +52,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 | Frontend | **React 19, TypeScript 6, Vite 8, Tailwind CSS 4, Zustand 5, lucide-react** | Single-page studio; typed REST client; WebSocket listener inside the job store |
 | Lint / build | **oxlint**, `tsc -b` + `vite build` | Frontend must pass both with zero warnings |
 | Desktop shell | **pywebview** (Edge WebView2), **pystray + Pillow** (tray icon) | Own app window and tray menu (`packaging/launcher.py`) |
-| Packaging | **PyInstaller** one-folder (`packaging/subforge.spec`, `build_exe.bat`) | Self-contained `SubForge Studio.exe` with Python, libraries, frontend, ffmpeg and CUDA libs |
+| Packaging | **PyInstaller** one-folder (`packaging/subbuild.spec`, `build_exe.bat`) | Self-contained `SubBuild Studio.exe` with Python, libraries, frontend, ffmpeg and CUDA libs |
 | Tests | **pytest, pytest-asyncio, httpx** | ~370 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
 
 ---
@@ -81,14 +81,14 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
  └────────┬──────────────────────────┬────────────────────────────┬───────────────────────────┬─────────┘
           │ SQLite (SQLModel)        │ ffmpeg / ffprobe           │ faster-whisper (GPU/CPU)  │ Gemini API / Ollama
           ▼                          ▼                            ▼                           ▼
-   storage/subforge.db        audio, frames, tracks         models in the HF cache        text + frames only
+   storage/subbuild.db        audio, frames, tracks         models in the HF cache        text + frames only
 ```
 
 ### 3.1 Backend layout (`backend/app/`)
 
 | Package | Contents |
 |---|---|
-| `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware (TrustedHost, CORS, `CrossSiteRequestGuard`), routers, WebSocket endpoint, static hosting of `SUBFORGE_FRONTEND_DIST` / `frontend/dist` |
+| `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware (TrustedHost, CORS, `CrossSiteRequestGuard`), routers, WebSocket endpoint, static hosting of `SUBBUILD_FRONTEND_DIST` / `frontend/dist` |
 | `api/` | One router per area (see §6): `routes_system`, `routes_media`, `routes_jobs`, `routes_export`, `routes_settings`, `routes_glossary`, `routes_storage` |
 | `core/` | `config` (settings), `request_guard` (CSRF / cross-site WebSocket guard), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `ollama_setup` (Ollama lifecycle/install), `compat` (PyAV/faster-whisper shim) |
 | `models/` | `db_models` (tables, `JobStatus`, `SegmentType`), `schemas` (Pydantic request/response models) |
@@ -215,7 +215,7 @@ first waits for autosaves still in flight.
 **Migrations:** `core/database.py` keeps an additive `_ADDED_COLUMNS` map and `ALTER TABLE … ADD COLUMN`s missing columns at startup, so
 existing databases keep working across versions (no migration tool, no destructive changes).
 
-**On disk (`storage/`, git-ignored):** `subforge.db`, `settings.json`, `uploads/`, `audio/`, `frames/`, `exports/`, `regions/`, `glossaries/`, `logs/` (`server.log` rotating 3 × 5 MB, `jobs/<job>.log` per project).
+**On disk (`storage/`, git-ignored):** `subbuild.db`, `settings.json`, `uploads/`, `audio/`, `frames/`, `exports/`, `regions/`, `glossaries/`, `logs/` (`server.log` rotating 3 × 5 MB, `jobs/<job>.log` per project).
 Housekeeping at startup removes stale temporary audio and abandoned uploads (`UPLOAD_RETENTION_HOURS`); the Settings screen can free space by category and never touches videos the user selected by path.
 
 ---
@@ -254,10 +254,10 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 ## 8. Desktop shell and packaging (`packaging/`)
 
 - **`launcher.py`** starts Uvicorn inside the same process (server thread), then shows the studio in a **pywebview window** (Edge WebView2) with a **tray icon** (`pystray`): open, open in browser, data folder, `.env`, server log, restart, quit. A loading page shows while the server starts; window size is remembered; closing asks first if a project is still running (quit / keep in background / cancel).
-- **Fallbacks:** `--browser` (or `SUBFORGE_UI=browser`), or automatically when WebView2 is missing; `--no-tray` for a console server. A second launch asks the running copy to show its window (`POST /api/desktop/show`); if the running copy has no window it says so instead of opening a tab.
-- **Data folder** (`SUBFORGE_HOME` → `data` next to the exe → `%LOCALAPPDATA%\SubForge Studio`) holds `.env`, `storage/`, `launcher.log` and the WebView profile, so replacing the program never touches user data. `run.bat` sets `SUBFORGE_HOME=backend`, keeping the developer layout.
+- **Fallbacks:** `--browser` (or `SUBBUILD_UI=browser`), or automatically when WebView2 is missing; `--no-tray` for a console server. A second launch asks the running copy to show its window (`POST /api/desktop/show`); if the running copy has no window it says so instead of opening a tab.
+- **Data folder** (`SUBBUILD_HOME` → `data` next to the exe → `%LOCALAPPDATA%\SubBuild Studio`) holds `.env`, `storage/`, `launcher.log` and the WebView profile, so replacing the program never touches user data. `run.bat` sets `SUBBUILD_HOME=backend`, keeping the developer layout.
 - **Windowed-exe details:** stdout/stderr go to `launcher.log`; child consoles (ffmpeg, nvidia-smi) are hidden under the frozen exe and `pythonw`.
-- **Build:** `build_exe.bat` installs backend + `packaging/requirements-build.txt`, builds the frontend, fetches a static ffmpeg (`get_ffmpeg.ps1`) and runs PyInstaller (`subforge.spec`) → `dist\SubForge Studio\` (2–3 GB, mostly CUDA libraries). `run.bat` runs the same launcher from source using `packaging/requirements-desktop.txt`.
+- **Build:** `build_exe.bat` installs backend + `packaging/requirements-build.txt`, builds the frontend, fetches a static ffmpeg (`get_ffmpeg.ps1`) and runs PyInstaller (`subbuild.spec`) → `dist\SubBuild Studio\` (2–3 GB, mostly CUDA libraries). `run.bat` runs the same launcher from source using `packaging/requirements-desktop.txt`.
 
 ---
 

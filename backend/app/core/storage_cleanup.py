@@ -198,7 +198,7 @@ def _vacuum(session: Session) -> None:
 
 
 def database_size() -> int:
-    for name in ("subforge.db",):
+    for name in ("subbuild.db", "subforge.db"):  # the latter: databases from before the rename
         p = settings.storage_dir / name
         if p.is_file():
             return p.stat().st_size

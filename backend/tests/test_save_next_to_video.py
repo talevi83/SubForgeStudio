@@ -44,7 +44,7 @@ def test_saves_translated_srt_next_to_the_video(client, tmp_path):
     assert data.startswith("﻿".encode("utf-8"))           # BOM, same as the download
     text = data.decode("utf-8")
     assert "שלום חבר" in text and "‏" in text                # RTL marks applied by default
-    assert not list(tmp_path.glob(".*subforge-tmp"))              # temp file cleaned up
+    assert not list(tmp_path.glob(".*subbuild-tmp"))              # temp file cleaned up
 
 
 def test_existing_file_is_kept_unless_overwrite(client, tmp_path):

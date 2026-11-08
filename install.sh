@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "==================================================="
-echo "           SubForge Studio - Installer"
+echo "           SubBuild Studio - Installer"
 echo "==================================================="
 echo
 
@@ -113,7 +113,7 @@ if ! check_node; then
     exit 1
 fi
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-    echo "[WARNING] ffmpeg / ffprobe not found on PATH. SubForge Studio needs FFmpeg to process media files."
+    echo "[WARNING] ffmpeg / ffprobe not found on PATH. SubBuild Studio needs FFmpeg to process media files."
 else
     echo "    - FFmpeg:  $(command -v ffmpeg)"
 fi
@@ -185,7 +185,7 @@ chmod +x "$SCRIPT_DIR/run.sh" "$SCRIPT_DIR/install.sh" 2>/dev/null || true
 echo
 echo "==================================================="
 echo " Installation complete!"
-echo " Start SubForge Studio anytime with:  ./run.sh"
+echo " Start SubBuild Studio anytime with:  ./run.sh"
 if [[ "$OS" == "Darwin" ]]; then
     echo " (or double-click run.command in Finder)"
 fi

@@ -5,8 +5,8 @@ $ProgressPreference = 'SilentlyContinue'   # the progress bar makes Invoke-WebRe
 
 $target = Join-Path $PSScriptRoot 'ffmpeg'
 $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-$zip = Join-Path $env:TEMP 'subforge-ffmpeg.zip'
-$unpacked = Join-Path $env:TEMP 'subforge-ffmpeg'
+$zip = Join-Path $env:TEMP 'subbuild-ffmpeg.zip'
+$unpacked = Join-Path $env:TEMP 'subbuild-ffmpeg'
 
 Write-Host "Downloading FFmpeg from $url ..."
 Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing

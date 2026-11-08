@@ -1,10 +1,10 @@
 @echo off
 setlocal
-title SubForge Studio - Build EXE
+title SubBuild Studio - Build EXE
 cd /d "%~dp0"
 
 echo ===================================================
-echo           SubForge Studio - Build EXE
+echo           SubBuild Studio - Build EXE
 echo ===================================================
 echo.
 
@@ -50,12 +50,12 @@ if %ERRORLEVEL% neq 0 (
 :: 4. PyInstaller
 echo.
 echo [4/5] Packaging with PyInstaller (this takes a few minutes)...
-"%PY%" -m PyInstaller packaging\subforge.spec --noconfirm --clean --distpath dist --workpath build
+"%PY%" -m PyInstaller packaging\subbuild.spec --noconfirm --clean --distpath dist --workpath build
 if %ERRORLEVEL% neq 0 goto :fail
 
 :: 5. First-run data folder: reuse the API key from backend\.env
 echo.
-set "DATA=%LOCALAPPDATA%\SubForge Studio"
+set "DATA=%LOCALAPPDATA%\SubBuild Studio"
 echo [5/5] Data folder: "%DATA%"
 if exist "%DATA%\webview\EBWebView\Default\Cache" rmdir /s /q "%DATA%\webview\EBWebView\Default\Cache" >nul 2>nul
 if exist "%DATA%\webview\EBWebView\Default\Code Cache" rmdir /s /q "%DATA%\webview\EBWebView\Default\Code Cache" >nul 2>nul
@@ -70,8 +70,8 @@ echo       Copied your backend\.env (API key) there.
 
 echo.
 echo ===================================================
-echo  Done:  dist\SubForge Studio\SubForge Studio.exe
-echo  Copy the whole "dist\SubForge Studio" folder; the exe needs the files next to it.
+echo  Done:  dist\SubBuild Studio\SubBuild Studio.exe
+echo  Copy the whole "dist\SubBuild Studio" folder; the exe needs the files next to it.
 echo ===================================================
 pause
 exit /b 0

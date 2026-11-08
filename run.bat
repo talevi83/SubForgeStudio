@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title SubForge Studio - Launcher
+title SubBuild Studio - Launcher
 
 echo ===================================================
-echo             SubForge Studio Launcher
+echo             SubBuild Studio Launcher
 echo ===================================================
 echo.
 
@@ -77,15 +77,15 @@ if errorlevel 1 (
     )
 )
 
-:: Start SubForge Studio in its own window (no browser, no console). The API key and the
+:: Start SubBuild Studio in its own window (no browser, no console). The API key and the
 :: projects stay in backend\ (backend\.env and backend\storage), like in the browser mode.
-echo [4/4] Starting SubForge Studio in its own window...
-set "SUBFORGE_HOME=%~dp0backend"
+echo [4/4] Starting SubBuild Studio in its own window...
+set "SUBBUILD_HOME=%~dp0backend"
 start "" "%~dp0backend\.venv\Scripts\pythonw.exe" "%~dp0packaging\launcher.py"
 exit /b 0
 
 :browser_mode
-echo [4/4] Starting SubForge Studio on http://localhost:8000 ...
+echo [4/4] Starting SubBuild Studio on http://localhost:8000 ...
 echo.
 echo ===================================================
 echo Server is running! Press Ctrl+C in this window to stop.

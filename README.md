@@ -19,9 +19,9 @@
 
 
 
-# SubForge Studio 🎬
+# SubBuild Studio 🎬
 
-**SubForge Studio** is a modular local web application for automated video subtitling, high-precision Speech-to-Text transcription with word-level timing, broadcast-grade subtitle refinement, and context-aware batch translation powered by Google Gemini API (with first-class RTL/Hebrew support).
+**SubBuild Studio** is a modular local web application for automated video subtitling, high-precision Speech-to-Text transcription with word-level timing, broadcast-grade subtitle refinement, and context-aware batch translation powered by Google Gemini API (with first-class RTL/Hebrew support).
 
 ---
 
@@ -31,7 +31,7 @@
    - Ingest multi-gigabyte files (MKV, MP4, AVI, WebM) directly from disk paths without duplicating files.
    - Right-click the path field for a one-item **Paste** menu (also works in the desktop window, where it reads the clipboard through the app).
    - Discovers all video, audio, and embedded subtitle tracks via `ffprobe` and lets you select the exact audio or text-based dialogue subtitle stream to use.
-   - **Use Embedded Subtitles Toggle (`use_embedded_subtitles`):** When the video has an embedded text-based dialogue track (e.g., SRT/ASS/WebVTT inside an MKV), SubForge extracts it directly for instant, studio-accurate timing without waiting for full Whisper transcription — or you can switch it off to force fresh Whisper transcription from the audio.
+   - **Use Embedded Subtitles Toggle (`use_embedded_subtitles`):** When the video has an embedded text-based dialogue track (e.g., SRT/ASS/WebVTT inside an MKV), SubBuild extracts it directly for instant, studio-accurate timing without waiting for full Whisper transcription — or you can switch it off to force fresh Whisper transcription from the audio.
    - **Supplement with Whisper (`supplement_with_whisper`):** Optionally run Whisper alongside embedded or synced subtitles (`pipeline/missing_speech.py`) to detect and recover spoken lines missing from the subtitle track (such as unsubtitled radio chatter, background remarks, or foreign phrases) without duplicating existing lines.
    - **Smart Genre Presets (`GenrePresets`):** One-click preset selector at the top of the configuration panel (`🎬 Drama & Cinema`, `🔬 Documentary, Reality & Science`, `🚁 Action, Military & Tactical`, `🕵️ Thriller, Horror & Crime`, `🚀 Sci-Fi, Fantasy & Anime`, `⚡ Fast & Clean / Sitcom`) that automatically configures all Whisper, audio sensitivity, OCR, and translation settings for that genre, with live active-preset detection and a `Custom` badge when tweaked manually.
    - Browser uploads show progress, are de-duplicated (same name + size is reused), and are deleted together with their project.
@@ -159,13 +159,13 @@ Prices come from the official Gemini API paid tier (checked October 2026, includ
 Pipeline per job: **Probe → Audio → Transcribe → On-screen text** *(optional)* **→ Refine → Translate**, with live progress and segments pushed over a WebSocket (`/ws/jobs/{job_id}`).
 
 ```text
-SubsForge Studio/
+SubBuild Studio/
 ├── SPEC.md                     # Architecture, tech stack and design decisions
 ├── README.md                   # Setup and usage guide
 ├── install.bat / run.bat       # One-click Windows installer & launcher
 ├── install.sh / run.sh         # One-click Linux & macOS installer & launcher
 ├── install.command / run.command # Double-clickable macOS Finder wrappers
-├── build_exe.bat               # Builds the standalone desktop app (dist\SubForge Studio\)
+├── build_exe.bat               # Builds the standalone desktop app (dist\SubBuild Studio\)
 ├── packaging/                  # Tray launcher, PyInstaller spec, icon, FFmpeg download script
 ├── backend/
 │   ├── .env.example            # Configuration template (copy to .env)
@@ -210,7 +210,7 @@ SubsForge Studio/
 │       ├── i18n/               # English & Hebrew UI strings
 │       └── types/              # TypeScript data contracts
 └── storage/                    # Created at runtime, git-ignored
-    ├── subforge.db             # Projects and subtitles (SQLite)
+    ├── subbuild.db             # Projects and subtitles (SQLite)
     ├── settings.json           # Choices from the Settings screen
     ├── uploads/                # Browser-uploaded video copies
     ├── audio/, frames/         # Temporary audio and sampled frames
@@ -298,7 +298,7 @@ Optional settings (defaults shown):
 | `TARGET_CPS` / `MAX_CPS_WARNING` | `17` / `20` | Reading speed the timing pass aims for / when the editor flags a line. |
 | `MIN_SUBTITLE_DURATION` / `MAX_SUBTITLE_DURATION` | `1.0` / `7.0` | Display time limits (seconds). |
 | `UPLOAD_RETENTION_HOURS` | `24` | Unused browser uploads older than this are removed at startup. |
-| `STORAGE_DIR` / `DATABASE_URL` | `./storage` / `sqlite:///./storage/subforge.db` | Where data and the database live. |
+| `STORAGE_DIR` / `DATABASE_URL` | `./storage` / `sqlite:///./storage/subbuild.db` | Where data and the database live. |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Server address. Keep `127.0.0.1` unless you really want LAN access: the API can read any file path on this PC. |
 | `SYNC_DETECT_BURNED_IN` / `SYNC_BURNED_IN_FPS` | `true` / `5` | *Sync my subtitles*: look for subtitles burned into the picture (local), and how many frames per second to check. |
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
@@ -331,7 +331,7 @@ Run the installer once, then start the studio with `./run.sh` (or on macOS, doub
 # First-time setup (checks/installs prerequisites, creates backend/.venv, .env, and builds frontend):
 ./install.sh
 
-# Start SubForge Studio (auto-rebuilds frontend if modified and opens http://localhost:8000):
+# Start SubBuild Studio (auto-rebuilds frontend if modified and opens http://localhost:8000):
 ./run.sh
 ```
 Pass `./install.sh --desktop` and `./run.sh --window` if you want the native `pywebview` desktop window instead of opening in the browser. Pass `./run.sh --no-browser` to start the server without opening a browser tab.
@@ -363,24 +363,25 @@ Open your browser at: **`http://localhost:5173`** (API requests & WebSockets pro
 
 ## 📦 Desktop App (Standalone EXE)
 
-`build_exe.bat` turns the project into a standalone Windows program: a folder with **`SubForge Studio.exe`** that includes Python, every library, the built frontend, FFmpeg and the NVIDIA CUDA runtime. The target PC needs no Python, Node or FFmpeg (only an NVIDIA driver for GPU transcription). The studio opens in **its own window** (pywebview on Microsoft Edge WebView2, which comes with Windows 10/11).
+`build_exe.bat` turns the project into a standalone Windows program: a folder with **`SubBuild Studio.exe`** that includes Python, every library, the built frontend, FFmpeg and the NVIDIA CUDA runtime. The target PC needs no Python, Node or FFmpeg (only an NVIDIA driver for GPU transcription). The studio opens in **its own window** (pywebview on Microsoft Edge WebView2, which comes with Windows 10/11).
 
 ### Build
 Requires the same tools as the Quickstart (Python or `uv`, Node.js). Double-click **`build_exe.bat`**. It:
 1. installs the backend and build dependencies (`packaging/requirements-build.txt`: PyInstaller, pystray, Pillow, pywebview) into `backend\.venv`;
 2. builds the frontend;
 3. downloads a static FFmpeg build into `packaging\ffmpeg` (once; put your own `ffmpeg.exe` + `ffprobe.exe` there to skip it);
-4. packages everything with PyInstaller (`packaging/subforge.spec`) into **`dist\SubForge Studio\`**;
+4. packages everything with PyInstaller (`packaging/subbuild.spec`) into **`dist\SubBuild Studio\`**;
 5. copies `backend\.env` (your API key) to the app's data folder if that folder has none yet.
 
-The output is about 2-3 GB, mostly the NVIDIA libraries. Copy or move the **whole** `dist\SubForge Studio` folder; the exe needs the `_internal` folder next to it.
+The output is about 2-3 GB, mostly the NVIDIA libraries. Copy or move the **whole** `dist\SubBuild Studio` folder; the exe needs the `_internal` folder next to it.
 
 ### Using it
-- Run `SubForge Studio.exe`: a SubForge Studio window opens right away (with a short loading screen while the server starts) and an icon appears in the system tray. Running the exe again while it's open brings the existing window to the front.
+- Run `SubBuild Studio.exe`: a SubBuild Studio window opens right away (with a short loading screen while the server starts) and an icon appears in the system tray. Running the exe again while it's open brings the existing window to the front.
 - **The window** remembers its size. Exports ask where to save the file (*Save as*, starting in Downloads), and the video player's fullscreen makes the whole window fullscreen. Closing the window quits the app; if a project is still running it asks first: *Yes* quits (the project can be resumed later), *No* keeps working in the background with only the tray icon, *Cancel* goes back.
-- **Tray menu** (right-click): *Open SubForge Studio* (or just click the icon), *Open in browser*, *Open data folder*, *Edit settings (.env)*, *Server log*, *Restart server* (after editing `.env`) and *Quit*. Quit and Restart ask first if a project is still running.
-- **Browser instead of a window:** start the exe with `--browser` (or set the environment variable `SUBFORGE_UI=browser`). If WebView2 is missing, the studio opens in the browser automatically (the reason is written to `launcher.log`); WebView2 can be installed from Microsoft (*Evergreen Runtime*).
-- **Data folder:** the `.env`, projects database, settings, logs, the window's size and the studio's own preferences (`webview\`) live in `%LOCALAPPDATA%\SubForge Studio`, not in the program folder, so rebuilding or replacing the program never touches them. To keep everything next to the exe instead (portable mode), create an empty `data` folder beside `SubForge Studio.exe`; the `SUBFORGE_HOME` environment variable overrides both.
+- **Tray menu** (right-click): *Open SubBuild Studio* (or just click the icon), *Open in browser*, *Open data folder*, *Edit settings (.env)*, *Server log*, *Restart server* (after editing `.env`) and *Quit*. Quit and Restart ask first if a project is still running.
+- **Browser instead of a window:** start the exe with `--browser` (or set the environment variable `SUBBUILD_UI=browser`). If WebView2 is missing, the studio opens in the browser automatically (the reason is written to `launcher.log`); WebView2 can be installed from Microsoft (*Evergreen Runtime*).
+- **Data folder:** the `.env`, projects database, settings, logs, the window's size and the studio's own preferences (`webview\`) live in `%LOCALAPPDATA%\SubBuild Studio`, not in the program folder, so rebuilding or replacing the program never touches them. To keep everything next to the exe instead (portable mode), create an empty `data` folder beside `SubBuild Studio.exe`; the `SUBBUILD_HOME` environment variable overrides both.
+- **Upgrading from SubForge Studio:** the app was renamed. On first start it adopts the old data automatically: the `%LOCALAPPDATA%\SubForge Studio` folder is renamed to `SubBuild Studio`, `storage/subforge.db` becomes `subbuild.db`, the old `SUBFORGE_HOME` / `SUBFORGE_UI` variables still work, and the browser-stored preferences (language, theme, last pipeline settings) are carried over.
 - Startup errors are shown in a message box. Details are in `launcher.log` and `storage\logs\server.log` in the data folder.
 - Whisper models are downloaded on first use to the usual Hugging Face cache in your user profile, shared with the developer setup.
 - The launcher also runs from source, without building: `backend\.venv\Scripts\python.exe packaging\launcher.py` (`--browser` for browser mode, `--no-tray` to run in the console, `--no-browser` to skip opening the browser in browser mode).

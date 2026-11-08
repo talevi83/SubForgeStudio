@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for "SubForge Studio.exe" (a one-folder build with a tray launcher).
+PyInstaller spec for "SubBuild Studio.exe" (a one-folder build with a tray launcher).
 
 Build it with build_exe.bat at the repo root, which also builds the frontend and fetches FFmpeg.
 Manual build (from the repo root, after `npm run build` in frontend/):
-    backend\\.venv\\Scripts\\python.exe -m PyInstaller packaging\\subforge.spec --noconfirm
-Output: dist\\SubForge Studio\\SubForge Studio.exe
+    backend\\.venv\\Scripts\\python.exe -m PyInstaller packaging\\subbuild.spec --noconfirm
+Output: dist\\SubBuild Studio\\SubBuild Studio.exe
 """
 import sys
 from pathlib import Path
@@ -92,7 +92,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="SubForge Studio",
+    name="SubBuild Studio",
     icon=str(PACKAGING / "icon.ico"),
     console=False,          # tray app: no console window (logs go to the data folder)
     upx=False,
@@ -103,6 +103,6 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    name="SubForge Studio",
+    name="SubBuild Studio",
     upx=False,
 )

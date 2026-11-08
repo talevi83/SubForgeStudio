@@ -10,6 +10,33 @@ logger = logging.getLogger(__name__)
 
 # SQLite connection configuration
 connect_args = {"check_same_thread": False}
+
+
+def _adopt_legacy_database() -> None:
+    """The app used to be called SubForge Studio and kept its data in ``subforge.db``.
+
+    Keep existing projects: if the default ``subbuild.db`` doesn't exist yet but the old file
+    does, rename it (and its SQLite sidecar files) before the engine opens anything.
+    """
+    prefix = "sqlite:///"
+    url = settings.database_url
+    if not url.startswith(prefix) or not url.endswith("/subbuild.db"):
+        return
+    new = Path(url[len(prefix):])
+    old = new.with_name("subforge.db")
+    if new.exists() or not old.is_file():
+        return
+    try:
+        for suffix in ("", "-wal", "-shm"):
+            src = Path(str(old) + suffix)
+            if src.exists():
+                src.rename(Path(str(new) + suffix))
+        logger.info("Renamed legacy database subforge.db -> subbuild.db")
+    except OSError as exc:  # fall back to a fresh DB rather than failing startup
+        logger.warning(f"Could not adopt legacy database {old}: {exc}")
+
+
+_adopt_legacy_database()
 engine = create_engine(settings.database_url, echo=False, connect_args=connect_args)
 
 # Columns added after the first release. SQLModel.create_all() never alters existing
