@@ -216,7 +216,7 @@ def test_recovered_lines_keep_their_place_inside_a_batched_segment():
 
 
 def test_bare_numbers_and_clocks_are_not_on_screen_text():
-    from app.pipeline.stages.ocr_stage import FrameDetection, merge_frame_detections
+    from app.pipeline.onscreen_merge import FrameDetection, merge_frame_detections
 
     dets = [FrameDetection(146.0, "151"), FrameDetection(822.0, "01:00"), FrameDetection(1540.0, "NAVAL HOSPITAL")]
     segs = merge_frame_detections(dets, frame_interval=2.0)
@@ -224,7 +224,7 @@ def test_bare_numbers_and_clocks_are_not_on_screen_text():
 
 
 def test_hud_labels_and_repeated_signs_are_not_on_screen_titles():
-    from app.pipeline.stages.ocr_stage import FrameDetection, merge_frame_detections
+    from app.pipeline.onscreen_merge import FrameDetection, merge_frame_detections
 
     dets = [
         FrameDetection(844.0, "EAGLE"), FrameDetection(846.0, "EAGLE"),            # radio HUD label

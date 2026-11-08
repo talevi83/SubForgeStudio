@@ -2,7 +2,7 @@ import pytest
 from app.models.schemas import SubtitleStreamInfo, AudioStreamInfo
 from app.pipeline.context import PipelineContext
 from app.pipeline.stages.audio_stage import AudioExtractionStage
-from app.pipeline.stages.ocr_stage import (
+from app.pipeline.embedded_tracks import (
     clean_embedded_dialogue_text,
     pick_dialogue_track,
 )
@@ -55,7 +55,7 @@ def test_pick_dialogue_track_foreign_and_explicit_selection():
 @pytest.mark.asyncio
 async def test_audio_stage_respects_use_embedded_subtitles_toggle(monkeypatch, tmp_path):
     import app.pipeline.stages.audio_stage as audio_mod
-    import app.pipeline.stages.ocr_stage as ocr_mod
+    import app.pipeline.embedded_tracks as tracks_mod
 
     extracted_audio_called = []
 
@@ -81,7 +81,7 @@ async def test_audio_stage_respects_use_embedded_subtitles_toggle(monkeypatch, t
         )
 
     monkeypatch.setattr(audio_mod, "extract_audio_track", fake_extract_audio_track)
-    monkeypatch.setattr(ocr_mod, "extract_dialogue_track", fake_extract_dialogue_track)
+    monkeypatch.setattr(tracks_mod, "extract_dialogue_track", fake_extract_dialogue_track)
 
     sub_stream = SubtitleStreamInfo(index=0, codec_name="subrip", language="spa", title="Spanish", forced=False, text_based=True)
 

@@ -18,7 +18,8 @@ from app.models.schemas import AudioStreamInfo
 from app.pipeline.context import PipelineCancelled, PipelineContext, RawSegment
 from app.pipeline.stages.audio_stage import AudioExtractionStage
 from app.pipeline.stages.base import PipelineStage
-from app.pipeline.stages.ocr_stage import OnScreenTextStage, remove_frames
+from app.pipeline.frame_sampling import remove_frames
+from app.pipeline.stages.ocr_stage import OnScreenTextStage
 from app.pipeline.stages.probe_stage import ProbeStage
 from app.pipeline.stages.refine_stage import RefineStage
 from app.pipeline.stages.sync_stage import SyncStage, sync_summary

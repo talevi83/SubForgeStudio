@@ -154,7 +154,7 @@ class AudioExtractionStage(PipelineStage):
             await on_progress(0.0, None, None, "Starting audio extraction...", None)
 
         if ctx.use_embedded_subtitles and not ctx.sync_cues and ctx.subtitle_streams:
-            from app.pipeline.stages.ocr_stage import pick_dialogue_track, extract_dialogue_track
+            from app.pipeline.embedded_tracks import pick_dialogue_track, extract_dialogue_track
             from app.utils.languages import language_code
 
             track = pick_dialogue_track(

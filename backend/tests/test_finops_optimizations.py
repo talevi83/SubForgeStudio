@@ -21,7 +21,8 @@ from app.pipeline.gender_pretag import (
     pretag_gender_hints,
 )
 from app.pipeline.onscreen_prefilter import prefilter_frames
-from app.pipeline.stages.ocr_stage import Frame, OnScreenTextStage
+from app.pipeline.frame_sampling import Frame
+from app.pipeline.stages.ocr_stage import OnScreenTextStage
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.providers.transcription.base import BaseTranscriber
 from app.providers.translation.base import TranslatableSegment
