@@ -1,4 +1,4 @@
-import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, SaveNextToVideoResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
+import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, SaveNextToVideoResult, EditHistory, HistoryRestoreResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -249,6 +249,24 @@ export const api = {
 
   getExportUrl(jobId: string, format: 'srt' | 'vtt', useTranslated: boolean, applyRtl = true): string {
     return `${API_BASE}/jobs/${jobId}/export/${format}?use_translated=${useTranslated}&apply_rtl=${applyRtl}`;
+  },
+
+  /** The project's edit history (steps oldest first, and the current one). */
+  getHistory(jobId: string): Promise<EditHistory> {
+    return request(`${API_BASE}/jobs/${jobId}/history`, undefined, 'Could not load the edit history');
+  },
+
+  undo(jobId: string): Promise<HistoryRestoreResult> {
+    return request(`${API_BASE}/jobs/${jobId}/history/undo`, { method: 'POST' }, 'Undo failed');
+  },
+
+  redo(jobId: string): Promise<HistoryRestoreResult> {
+    return request(`${API_BASE}/jobs/${jobId}/history/redo`, { method: 'POST' }, 'Redo failed');
+  },
+
+  /** Jump to any step of the history. */
+  restoreHistory(jobId: string, entryId: number): Promise<HistoryRestoreResult> {
+    return request(`${API_BASE}/jobs/${jobId}/history/${entryId}/restore`, { method: 'POST' }, 'Could not go back to that step');
   },
 
   /** Write the subtitles into the video's own folder (Movie.he.srt next to Movie.mkv). */

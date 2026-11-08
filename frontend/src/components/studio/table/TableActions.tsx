@@ -1,7 +1,8 @@
 import React from 'react';
-import { Loader2, Plus, ShieldCheck, Timer, Undo2 } from 'lucide-react';
+import { Loader2, Plus, ShieldCheck, Timer } from 'lucide-react';
 import { useJobStore } from '../../../store/useJobStore';
 import { useT } from '../../../i18n';
+import { HistoryControls } from './HistoryControls';
 
 interface TableActionsProps {
   /** A finished job with subtitles: re-check timing and the quality check are available */
@@ -13,7 +14,7 @@ interface TableActionsProps {
   onAutoScrollChange: (value: boolean) => void;
 }
 
-/** Right side of the second toolbar row: re-check timing (+ undo), add line, quality check, auto-scroll. */
+/** Right side of the second toolbar row: undo/redo/history, re-check timing, add line, quality check, auto-scroll. */
 export const TableActions: React.FC<TableActionsProps> = ({
   canRecheck,
   canInsert,
@@ -23,30 +24,20 @@ export const TableActions: React.FC<TableActionsProps> = ({
   onAutoScrollChange,
 }) => {
   const retimeActiveJob = useJobStore((s) => s.retimeActiveJob);
-  const undoRetime = useJobStore((s) => s.undoRetime);
   const timingBusy = useJobStore((s) => s.timingBusy);
   const timingNote = useJobStore((s) => s.timingNote);
-  const timingUndo = useJobStore((s) => s.timingUndo);
   const openInsert = useJobStore((s) => s.openInsert);
   const t = useT();
 
   return (
     <>
+      {canRecheck && <HistoryControls />}
       {canRecheck && (
         <span className="flex items-center gap-2">
           {timingNote !== null && !timingBusy && (
             <span className="text-indigo-300">
               {Number(timingNote) > 0 ? t('table.timingFixed', { count: Number(timingNote) }) : t('table.timingOk')}
             </span>
-          )}
-          {timingUndo && !timingBusy && (
-            <button
-              onClick={() => void undoRetime()}
-              className="flex items-center gap-1 text-zinc-300 hover:text-white"
-            >
-              <Undo2 className="w-3 h-3" />
-              {t('table.undo')}
-            </button>
           )}
           <button
             onClick={() => void retimeActiveJob()}

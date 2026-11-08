@@ -38,6 +38,7 @@ _ADDED_COLUMNS = {
         "remove_sdh_speakers": "BOOLEAN NOT NULL DEFAULT 0",
         "skip_end_credits": "BOOLEAN NOT NULL DEFAULT 1",
         "supplement_with_whisper": "BOOLEAN NOT NULL DEFAULT 0",
+        "history_cursor": "INTEGER",
     },
     "subtitle_segments": {
         "translation_failed": "BOOLEAN NOT NULL DEFAULT 0",

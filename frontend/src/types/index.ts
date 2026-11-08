@@ -483,3 +483,39 @@ export interface SaveNextToVideoResult {
   /** The file already existed; with overwrite=false nothing was written */
   exists: boolean;
 }
+
+export type HistoryAction =
+  | 'original'
+  | 'edit'
+  | 'edit_timing'
+  | 'bulk_edit'
+  | 'insert'
+  | 'delete'
+  | 'delete_many'
+  | 'move'
+  | 'retime'
+  | 'translate'
+  | 'external';
+
+/** One step of a project's edit history (the subtitles as they were after it) */
+export interface HistoryEntry {
+  id: number;
+  action: HistoryAction | string;
+  details: { index?: number; count?: number; from?: number; to?: number; scope?: string; fields?: string[] };
+  created_at: string;
+  segment_count: number;
+}
+
+/** GET /api/jobs/{id}/history — oldest first; `cursor` is the step the subtitles are at now */
+export interface EditHistory {
+  cursor: number | null;
+  can_undo: boolean;
+  can_redo: boolean;
+  entries: HistoryEntry[];
+}
+
+export interface HistoryRestoreResult {
+  segments: SubtitleSegment[];
+  history: EditHistory;
+}
+
