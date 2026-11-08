@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from app.pipeline.context import RawSegment, TranscribedWord
-from app.pipeline.stages.refine_stage import refine_raw_segments
+from app.pipeline.segmentation import refine_raw_segments
 from app.pipeline.word_snap import snap_word_starts
 from app.providers.transcription import faster_whisper as fw
 

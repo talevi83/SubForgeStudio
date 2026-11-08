@@ -211,7 +211,7 @@ class SyncStage(PipelineStage):
         tracks = [s for s in (ctx.subtitle_streams or []) if s.text_based and not s.looks_forced][:MAX_TRACKS]
         best: Tuple[List[Interval], Dict] = ([], {"source": None})
         if tracks:
-            from app.pipeline.stages.ocr_stage import extract_forced_track
+            from app.pipeline.embedded_tracks import extract_forced_track
 
             for track in tracks:
                 try:

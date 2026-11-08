@@ -175,7 +175,11 @@ SubsForge Studio/
 │   │   ├── models/             # SQLModel tables & Pydantic schemas
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.py # Runs the stages: GPU queue, cancel, save-as-you-go, recovery after restart
+│   │   │   ├── job_report.py   # Per-job log: settings at the start, result, usage and cost at the end
 │   │   │   ├── stages/         # probe, audio, transcribe, ocr (on-screen text), refine, translate, sync
+│   │   │   ├── segmentation.py, timeline_merge.py    # Refine: Whisper words -> subtitles; COMMS/on-screen/foreign merge
+│   │   │   ├── embedded_tracks.py   # Forced / dialogue subtitle tracks inside the video
+│   │   │   ├── frame_sampling.py, onscreen_vision.py, onscreen_merge.py   # On-screen text: frames -> Gemini -> segments
 │   │   │   ├── sync_align.py   # Sync: offset / frame rate / cuts (correlation + dynamic programming)
 │   │   │   ├── sync_text.py    # Sync: line-to-speech anchors (local word matching, Gemini)
 │   │   │   ├── sync_burned.py  # Sync: burned-in subtitle detection (local frame analysis)
@@ -196,7 +200,7 @@ SubsForge Studio/
 ├── frontend/                   # React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand
 │   ├── vite.config.ts          # Build & dev proxy to the backend
 │   └── src/
-│       ├── components/         # ingest/ (incl. GenrePresets), monitor/, studio/, settings/, layout/
+│       ├── components/         # ingest/ (incl. GenrePresets), monitor/, studio/ (table/ = subtitle table hooks & toolbar), settings/, layout/
 │       ├── store/              # Zustand stores (jobs + WebSocket listener, settings, UI)
 │       ├── services/api.ts     # Typed REST client
 │       ├── hooks/              # Cost estimate
@@ -296,7 +300,7 @@ Optional settings (defaults shown):
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
 | `CORS_ORIGINS` | `["http://localhost:5173", …:8000]` | Browser origins allowed to use the API. State-changing requests and WebSockets from any other website are rejected (CSRF guard); the studio's own page is always allowed. |
 
-An API key typed into the UI is used for that run only and is never written to disk.
+An API key saved in Settings (or the first-run dialog) is stored in `.env`. A key typed on the Ingest screen for a single job is used for that run only and is never written to disk.
 
 ### 3. Frontend Setup
 ```bash

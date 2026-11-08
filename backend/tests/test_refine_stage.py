@@ -1,6 +1,6 @@
 import pytest
 from app.pipeline.context import RawSegment, TranscribedWord
-from app.pipeline.stages.refine_stage import refine_raw_segments
+from app.pipeline.segmentation import refine_raw_segments
 
 
 def test_refine_empty_segments():
@@ -108,7 +108,7 @@ def _raw(idx, words):
 def test_orphan_opener_moves_across_the_pause():
     # Real case: "...aren't we? Feet" at 11:40, "dry on the east beach." at 12:01 —
     # batched Whisper stamped "Feet" at the end of the previous utterance.
-    from app.pipeline.stages.refine_stage import reattach_orphan_leads
+    from app.pipeline.segmentation import reattach_orphan_leads
 
     a = _raw(1, _words([("aren't", 699.6), ("we?", 700.1), ("Feet", 700.6)]))
     b = _raw(2, _words([("dry", 721.9), ("on", 722.3), ("the", 722.6), ("east", 722.9), ("beach.", 723.3)]))
@@ -120,7 +120,7 @@ def test_orphan_opener_moves_across_the_pause():
 
 def test_orphan_after_a_comma_moves_but_the_greeting_stays():
     # "Hey, Commodore, don't" / "give him a damn thing." — only "don't" belongs to the second line.
-    from app.pipeline.stages.refine_stage import reattach_orphan_leads
+    from app.pipeline.segmentation import reattach_orphan_leads
 
     a = _raw(1, _words([("Hey,", 1910.1), ("Commodore,", 1910.6), ("don't", 1911.6)]))
     b = _raw(2, _words([("give", 1915.6), ("him", 1915.9), ("a", 1916.1), ("damn", 1916.3), ("thing.", 1916.6)]))
@@ -132,7 +132,7 @@ def test_orphan_after_a_comma_moves_but_the_greeting_stays():
 
 def test_whole_unpunctuated_fragment_merges_into_its_sentence():
     # "We need another" at 0:19.6 with the sentence resuming at 0:23.1.
-    from app.pipeline.stages.refine_stage import reattach_orphan_leads
+    from app.pipeline.segmentation import reattach_orphan_leads
 
     a = _raw(1, _words([("We", 19.6), ("need", 19.9), ("another", 20.3)]))
     b = _raw(2, _words([("20", 23.1), ("amps", 23.5), ("for", 23.8), ("a", 24.0), ("new", 24.2), ("circuit,", 24.5)]))
@@ -143,7 +143,7 @@ def test_whole_unpunctuated_fragment_merges_into_its_sentence():
 
 
 def test_finished_sentences_and_short_gaps_are_left_alone():
-    from app.pipeline.stages.refine_stage import reattach_orphan_leads
+    from app.pipeline.segmentation import reattach_orphan_leads
 
     a = _raw(1, _words([("I'll", 10.0), ("try.", 10.4)]))
     b = _raw(2, _words([("Good.", 20.0)]))

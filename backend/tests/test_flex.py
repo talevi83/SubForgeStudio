@@ -241,7 +241,8 @@ def test_translate_stage_reads_flex_from_settings(client: TestClient):
 
 @pytest.mark.asyncio
 async def test_vision_scan_sends_flex(tmp_path, no_sleep):
-    from app.pipeline.stages import ocr_stage
+    from app.pipeline.frame_sampling import Frame
+    from app.pipeline.onscreen_vision import _gemini_detect
 
     frame = tmp_path / "f.jpg"
     frame.write_bytes(b"\xff\xd8\xff")
@@ -249,7 +250,7 @@ async def test_vision_scan_sends_flex(tmp_path, no_sleep):
     client.generate_content = (lambda orig: lambda model, contents, config: (
         orig(model, contents, config), types.SimpleNamespace(text='{"detections": []}', usage_metadata=None))[1]
     )(client.generate_content)
-    await ocr_stage._gemini_detect(client, "gemini-3.5-flash-lite", [ocr_stage.Frame(time=1.0, path=frame)], flex=True)
+    await _gemini_detect(client, "gemini-3.5-flash-lite", [Frame(time=1.0, path=frame)], flex=True)
     assert _tier(client.calls[0][2]) == "flex"
 
 

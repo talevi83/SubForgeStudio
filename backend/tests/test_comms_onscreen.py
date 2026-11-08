@@ -17,21 +17,18 @@ from app.main import app
 from app.models.schemas import SubtitleStreamInfo
 from app.pipeline.context import PipelineContext, RawSegment, TranscribedWord
 from app.pipeline.stages.audio_stage import COMMS_AUDIO_FILTER, build_audio_filter, extract_audio_track
-from app.pipeline.stages.ocr_stage import (
-    Frame,
+from app.pipeline.embedded_tracks import clean_embedded_dialogue_text, parse_srt, pick_forced_track
+from app.pipeline.frame_sampling import Frame, select_frames
+from app.pipeline.onscreen_merge import (
     FrameDetection,
-    OnScreenTextStage,
-    clean_embedded_dialogue_text,
     format_onscreen_text,
-    get_vision_system_instruction,
     merge_frame_detections,
-    parse_srt,
-    pick_forced_track,
-    select_frames,
     _is_tag,
     _is_unwanted_onscreen,
 )
-from app.pipeline.stages.refine_stage import classify_comms, is_comms_text, merge_timeline
+from app.pipeline.onscreen_vision import get_vision_system_instruction
+from app.pipeline.stages.ocr_stage import OnScreenTextStage
+from app.pipeline.timeline_merge import classify_comms, is_comms_text, merge_timeline
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.providers.transcription.base import BaseTranscriber
 from app.providers.translation.base import TranslatableSegment
@@ -52,7 +49,7 @@ def _onscreen(start, end, text):
 
 
 # ---------------------------------------------------------------------------
-# Timeline merging (refine_stage)
+# Timeline merging (timeline_merge)
 # ---------------------------------------------------------------------------
 
 def test_onscreen_in_silence_becomes_its_own_entry_and_reindexes():

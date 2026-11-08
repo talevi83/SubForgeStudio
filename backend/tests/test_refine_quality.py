@@ -1,6 +1,6 @@
 """Behaviour of the rewritten refine stage (segmentation, fragments, timing)."""
 from app.pipeline.context import RawSegment, TranscribedWord
-from app.pipeline.stages.refine_stage import refine_raw_segments, _collapse_repetitions, _Tok
+from app.pipeline.segmentation import refine_raw_segments, _collapse_repetitions, _Tok
 
 
 def _words(text: str, start: float, step: float = 0.3):
