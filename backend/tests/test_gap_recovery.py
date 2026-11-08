@@ -196,7 +196,7 @@ def test_coverage_comes_from_words_not_segment_bounds():
 def test_recovered_lines_keep_their_place_inside_a_batched_segment():
     """A batched segment spanning 57-85s must not push lines recovered at 73-82s after 85s."""
     from app.pipeline.context import TranscribedWord
-    from app.pipeline.stages.refine_stage import refine_raw_segments, split_at_pauses
+    from app.pipeline.segmentation import refine_raw_segments, split_at_pauses
 
     W = TranscribedWord
     batched = RawSegment(1, 57.0, 85.0, "Let me off the ship this time. Weapons on set!", words=[

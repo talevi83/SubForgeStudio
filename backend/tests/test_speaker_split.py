@@ -144,7 +144,7 @@ def test_heal_split_sentences_handles_multiword_tail_and_trailing_lead():
 
 def test_reattach_orphan_tails_and_word_snap_guard():
     from app.pipeline.context import RawSegment, TranscribedWord
-    from app.pipeline.stages.refine_stage import reattach_orphan_tails
+    from app.pipeline.segmentation import reattach_orphan_tails
     from app.pipeline.word_snap import snap_word_starts
 
     # 1. snap_word_starts does not snap a sentence-ending word ("officials.") across a pause

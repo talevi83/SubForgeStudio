@@ -28,7 +28,7 @@ from app.pipeline.onscreen_merge import (
 )
 from app.pipeline.onscreen_vision import get_vision_system_instruction
 from app.pipeline.stages.ocr_stage import OnScreenTextStage
-from app.pipeline.stages.refine_stage import classify_comms, is_comms_text, merge_timeline
+from app.pipeline.timeline_merge import classify_comms, is_comms_text, merge_timeline
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.providers.transcription.base import BaseTranscriber
 from app.providers.translation.base import TranslatableSegment
@@ -49,7 +49,7 @@ def _onscreen(start, end, text):
 
 
 # ---------------------------------------------------------------------------
-# Timeline merging (refine_stage)
+# Timeline merging (timeline_merge)
 # ---------------------------------------------------------------------------
 
 def test_onscreen_in_silence_becomes_its_own_entry_and_reindexes():

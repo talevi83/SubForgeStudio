@@ -19,7 +19,7 @@ from app.pipeline.foreign_speech import build_foreign_spans, group_speech
 from app.pipeline.onscreen_merge import FrameDetection, merge_frame_detections
 from app.pipeline.onscreen_vision import SUBTITLE_INSTRUCTION
 from app.pipeline.stages.ocr_stage import OnScreenTextStage
-from app.pipeline.stages.refine_stage import merge_foreign
+from app.pipeline.timeline_merge import merge_foreign
 from app.pipeline.stages.transcribe_stage import TranscribeStage
 from app.providers.transcription.base import BaseTranscriber
 
