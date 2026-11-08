@@ -1,4 +1,4 @@
-import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
+import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, SaveNextToVideoResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -249,6 +249,18 @@ export const api = {
 
   getExportUrl(jobId: string, format: 'srt' | 'vtt', useTranslated: boolean, applyRtl = true): string {
     return `${API_BASE}/jobs/${jobId}/export/${format}?use_translated=${useTranslated}&apply_rtl=${applyRtl}`;
+  },
+
+  /** Write the subtitles into the video's own folder (Movie.he.srt next to Movie.mkv). */
+  saveNextToVideo(
+    jobId: string,
+    options: { format?: 'srt' | 'vtt'; use_translated?: boolean; apply_rtl?: boolean; overwrite?: boolean }
+  ): Promise<SaveNextToVideoResult> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/export/save-next-to-video`,
+      json('POST', options),
+      'Could not save the subtitles next to the video'
+    );
   },
 
   /** Detailed log of everything that happened while the job ran (summary + log lines). */

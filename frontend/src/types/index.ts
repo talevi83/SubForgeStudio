@@ -475,3 +475,11 @@ export interface JobUsage {
   total_tokens?: number;
   total_cost_usd: number | null;
 }
+
+/** POST /api/jobs/{id}/export/save-next-to-video */
+export interface SaveNextToVideoResult {
+  saved: boolean;
+  path: string;
+  /** The file already existed; with overwrite=false nothing was written */
+  exists: boolean;
+}

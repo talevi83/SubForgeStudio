@@ -216,7 +216,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 | Jobs | `POST/GET /api/jobs` (`sync_cues` makes a sync job), `GET/DELETE /api/jobs/{id}`, `DELETE /api/jobs`, `POST /api/jobs/bulk-delete`, `PATCH /api/jobs/{id}/settings`, `POST …/cancel`, `POST …/translate` |
 | Editing | `POST …/segments`, `DELETE …/segments/{id}`, `DELETE …/segments`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
 | Translation tools | `PUT …/glossary`, `POST …/detect-speakers`, `GET …/qa`, `GET /api/glossary-profiles` |
-| Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log` |
+| Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log`, `POST …/export/save-next-to-video` (writes `Movie.he.srt` into the video's folder; `exists` answer instead of overwriting unless `overwrite`; refused for uploads) |
 | Settings | `GET/PUT /api/settings`, `GET/PUT /api/settings/api-key`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
 | Storage | `GET /api/storage`, `POST /api/storage/clean` |
 | Live | `WS /ws/jobs/{job_id}` |
@@ -231,7 +231,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 - **i18n:** `i18n/en.ts` + `i18n/he.ts`; message keys are typed, so a missing translation fails the TypeScript build. Hebrew switches the whole layout to RTL (`dir`), with explicit `dir` only around genuinely left-to-right fragments.
 - **Player:** HTML5 video with Range seeking and a dynamic WebVTT blob track, so edits show on the video immediately. Shortcuts: `Space`, `←/→` (±2 s, `Shift` ±0.1 s), `[` `]` (set start/end to playhead), `N` (add line), `F` (fullscreen).
 - **Dev/prod:** `npm run dev` on `:5173` proxies `/api` and `/ws` to `:8000`; `npm run build` produces `frontend/dist`, which FastAPI serves on the same origin.
-- **Desktop bridge:** `utils/desktop.ts` talks to `window.pywebview.api` when present (fullscreen of the whole window).
+- **Desktop bridge:** `utils/desktop.ts` talks to `window.pywebview.api` when present (fullscreen of the whole window; `read_clipboard` for the path field's right-click *Paste* menu, since WebView2 may refuse the page's clipboard permission — browsers fall back to `navigator.clipboard`).
 
 ---
 

@@ -7,6 +7,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.database import get_session
 from app.models.db_models import Job
+from app.models.schemas import SaveNextToVideoRequest, SaveNextToVideoResponse
 from app.utils.languages import language_code
 from app.utils.srt_formatter import serialize_to_srt, serialize_to_vtt
 
@@ -33,11 +34,8 @@ def _attachment_headers(filename: str) -> dict:
     }
 
 
-def _export(job_id: str, session: Session, use_translated: bool, apply_rtl: bool,
-            max_chars_per_line: Optional[int], fmt: str) -> Response:
-    job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+def _render(job: Job, use_translated: bool, apply_rtl: bool, max_chars_per_line: Optional[int], fmt: str) -> bytes:
+    """The subtitle file's bytes, exactly as downloaded (SRT with a UTF-8 BOM)."""
     serializer = serialize_to_srt if fmt == "srt" else serialize_to_vtt
     onscreen_pos = getattr(job, "onscreen_position", "top_center") or "top_center"
     content = serializer(
@@ -47,11 +45,19 @@ def _export(job_id: str, session: Session, use_translated: bool, apply_rtl: bool
         max_chars_per_line=max_chars_per_line or settings.max_chars_per_line,
         onscreen_position=onscreen_pos,
     )
-    media_type = "application/x-subrip; charset=utf-8" if fmt == "srt" else "text/vtt; charset=utf-8"
     # UTF-8 BOM: some players (and Windows Notepad) otherwise mis-detect Hebrew as ANSI.
     body = ("﻿" + content) if fmt == "srt" else content
+    return body.encode("utf-8")
+
+
+def _export(job_id: str, session: Session, use_translated: bool, apply_rtl: bool,
+            max_chars_per_line: Optional[int], fmt: str) -> Response:
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    media_type = "application/x-subrip; charset=utf-8" if fmt == "srt" else "text/vtt; charset=utf-8"
     return Response(
-        content=body.encode("utf-8"),
+        content=_render(job, use_translated, apply_rtl, max_chars_per_line, fmt),
         media_type=media_type,
         headers=_attachment_headers(_build_filename(job, use_translated, fmt)),
     )
@@ -79,6 +85,45 @@ def export_vtt(
 ):
     """Export and download subtitles as WebVTT (.vtt) format."""
     return _export(job_id, session, use_translated, apply_rtl, max_chars_per_line, "vtt")
+
+
+@router.post("/{job_id}/export/save-next-to-video", response_model=SaveNextToVideoResponse)
+def save_next_to_video(job_id: str, req: SaveNextToVideoRequest, session: Session = Depends(get_session)):
+    """Write the subtitles into the video's own folder, named for media servers (Movie.he.srt).
+
+    Only for videos opened by path: an uploaded copy lives in the app's storage folder. An existing
+    file is never replaced unless `overwrite` is set; the answer says it exists so the UI can ask.
+    """
+    import os
+
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.is_upload:
+        raise HTTPException(
+            status_code=400,
+            detail="This video was uploaded through the browser, so it has no folder of its own. Download the file instead.",
+        )
+    if not any(seg.translated_text for seg in job.segments) and req.use_translated:
+        raise HTTPException(status_code=400, detail="This project has no translation to save yet.")
+    folder = Path(job.video_path).parent
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"The video's folder no longer exists: {folder}")
+
+    target = folder / _build_filename(job, req.use_translated, req.format)
+    exists = target.exists()
+    if exists and not req.overwrite:
+        return SaveNextToVideoResponse(saved=False, path=str(target), exists=True)
+
+    data = _render(job, req.use_translated, req.apply_rtl, None, req.format)
+    tmp = target.with_name(f".{target.name}.subforge-tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, target)  # a half-written file never replaces a good one
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Could not write {target}: {exc}")
+    return SaveNextToVideoResponse(saved=True, path=str(target), exists=exists)
 
 
 def _job_log_header(job: Job) -> str:
