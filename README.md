@@ -175,7 +175,11 @@ SubsForge Studio/
 │   │   ├── models/             # SQLModel tables & Pydantic schemas
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.py # Runs the stages: GPU queue, cancel, save-as-you-go, recovery after restart
+│   │   │   ├── job_report.py   # Per-job log: settings at the start, result, usage and cost at the end
 │   │   │   ├── stages/         # probe, audio, transcribe, ocr (on-screen text), refine, translate, sync
+│   │   │   ├── segmentation.py, timeline_merge.py    # Refine: Whisper words -> subtitles; COMMS/on-screen/foreign merge
+│   │   │   ├── embedded_tracks.py   # Forced / dialogue subtitle tracks inside the video
+│   │   │   ├── frame_sampling.py, onscreen_vision.py, onscreen_merge.py   # On-screen text: frames -> Gemini -> segments
 │   │   │   ├── sync_align.py   # Sync: offset / frame rate / cuts (correlation + dynamic programming)
 │   │   │   ├── sync_text.py    # Sync: line-to-speech anchors (local word matching, Gemini)
 │   │   │   ├── sync_burned.py  # Sync: burned-in subtitle detection (local frame analysis)
@@ -196,7 +200,7 @@ SubsForge Studio/
 ├── frontend/                   # React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand
 │   ├── vite.config.ts          # Build & dev proxy to the backend
 │   └── src/
-│       ├── components/         # ingest/ (incl. GenrePresets), monitor/, studio/, settings/, layout/
+│       ├── components/         # ingest/ (incl. GenrePresets), monitor/, studio/ (table/ = subtitle table hooks & toolbar), settings/, layout/
 │       ├── store/              # Zustand stores (jobs + WebSocket listener, settings, UI)
 │       ├── services/api.ts     # Typed REST client
 │       ├── hooks/              # Cost estimate
