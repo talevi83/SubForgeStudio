@@ -51,6 +51,8 @@ function loadSavedConfig(): Partial<JobConfig> {
     const parsed = raw ? JSON.parse(raw) : {};
     // Older versions stored the Gemini model here; it now lives in Settings
     delete parsed.gemini_model;
+    // The series belongs to one video, never a default for the next one (older versions saved it)
+    delete parsed.glossary_profile;
     return parsed;
   } catch {
     return {};
@@ -64,6 +66,7 @@ function saveConfig(config: JobConfig) {
       selected_audio_stream: _stream,
       selected_subtitle_stream: _subStream,
       context_notes: _notes,
+      glossary_profile: _series,
       ...rest
     } = config;
     localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(rest));
@@ -453,6 +456,8 @@ export const useJobStore = create<JobState>((set, get) => {
           ...state.pipelineConfig,
           selected_audio_stream: 0,
           selected_subtitle_stream: null,
+          // A new video starts without a series glossary until the user picks one
+          glossary_profile: '',
         },
       }));
     },

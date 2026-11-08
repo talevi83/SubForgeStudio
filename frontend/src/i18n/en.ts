@@ -133,7 +133,7 @@ export const en = {
       'No API key: the video will be transcribed but not translated. Add GEMINI_API_KEY to backend/.env or enter a key below — you can translate later from the studio.',
     keyPlaceholder: 'Gemini API key for this session (not saved to disk)',
     series: 'Series glossary (optional)',
-    seriesPlaceholder: 'e.g. The Last Ship',
+    seriesPlaceholder: 'Series name (leave empty for none)',
     seriesHelp: 'Reuse the characters and genders you saved for this show; the AI only adds new ones.',
     notes: 'Show / movie context notes (optional)',
     notesPlaceholder: 'e.g. Sci-fi thriller. Sarah speaks in feminine singular. Keep military jargon authentic.',
@@ -436,7 +436,7 @@ export const en = {
   },
   glossary: {
     profile: 'Series profile (shared between episodes)',
-    profilePlaceholder: 'e.g. The Last Ship',
+    profilePlaceholder: 'Series name (leave empty for none)',
     profileHelp: 'Saved under this name. Later episodes that use it start from this list, and their glossary pass only adds new characters.',
     open: 'Characters & terms',
     openTitle: 'View and fix the characters (gender, name spelling) and terms the translator uses',
