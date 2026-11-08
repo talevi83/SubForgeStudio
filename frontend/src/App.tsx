@@ -50,6 +50,18 @@ export const App: React.FC = () => {
     loadSettings();
   }, [loadSettings]);
 
+  // The shell is exactly one viewport tall and manages its own scrolling. If anything (a focus
+  // jump, scrollIntoView...) still scrolls the document itself, snap it back instead of leaving
+  // the layout shifted.
+  useEffect(() => {
+    const snapBack = () => {
+      const el = document.scrollingElement;
+      if (el && (el.scrollTop !== 0 || el.scrollLeft !== 0)) el.scrollTo(0, 0);
+    };
+    window.addEventListener('scroll', snapBack, { passive: true });
+    return () => window.removeEventListener('scroll', snapBack);
+  }, []);
+
   return (
     <div className="flex h-screen w-screen bg-app text-zinc-100 overflow-hidden font-sans">
       <ErrorToast />

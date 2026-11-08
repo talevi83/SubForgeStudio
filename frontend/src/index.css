@@ -81,6 +81,19 @@
   }
 }
 
+/*
+ * Visually-hidden toggle inputs (`sr-only peer`) are position:absolute. With no positioned
+ * ancestor they sit relative to the *document*, so focusing one on click made the browser
+ * scroll the whole (overflow:hidden) app shell to reach it: the layout jumped and, in a small
+ * window, the screen went black. A fixed 1px input pinned to the viewport corner can never
+ * need scrolling to. Unlayered on purpose: it must beat Tailwind's `.sr-only` utility.
+ */
+input.sr-only {
+  position: fixed;
+  top: 0;
+  inset-inline-start: 0;
+}
+
 .font-mono-time {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
