@@ -1,4 +1,7 @@
-<img width="1920" height="911" alt="image" src="https://github.com/user-attachments/assets/8d062870-3a46-4568-af38-284c965d7deb" />
+<img width="1859" height="1040" alt="image" src="https://github.com/user-attachments/assets/5e0c09b8-e884-4fe4-a133-6db18178bd5c" />
+
+<img width="2550" height="1382" alt="image" src="https://github.com/user-attachments/assets/ab9c2f14-27f0-4a97-b243-cfca80df8252" />
+
 
 # SubBuild Studio 🎬
 
