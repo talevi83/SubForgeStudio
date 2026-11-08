@@ -326,3 +326,25 @@ class SaveNextToVideoResponse(BaseModel):
     path: str
     # True when the file already existed (with overwrite=false nothing was written)
     exists: bool
+
+
+class HistoryEntrySchema(BaseModel):
+    id: int
+    # original | edit | edit_timing | bulk_edit | insert | delete | delete_many | move | retime | translate | external
+    action: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    segment_count: int
+
+
+class HistoryResponse(BaseModel):
+    """The job's edit history, oldest first; `cursor` is the step the subtitles are at now."""
+    cursor: Optional[int] = None
+    can_undo: bool = False
+    can_redo: bool = False
+    entries: List[HistoryEntrySchema] = Field(default_factory=list)
+
+
+class HistoryRestoreResponse(BaseModel):
+    segments: List[SubtitleSegmentSchema]
+    history: HistoryResponse

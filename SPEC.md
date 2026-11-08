@@ -53,7 +53,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 | Lint / build | **oxlint**, `tsc -b` + `vite build` | Frontend must pass both with zero warnings |
 | Desktop shell | **pywebview** (Edge WebView2), **pystray + Pillow** (tray icon) | Own app window and tray menu (`packaging/launcher.py`) |
 | Packaging | **PyInstaller** one-folder (`packaging/subforge.spec`, `build_exe.bat`) | Self-contained `SubForge Studio.exe` with Python, libraries, frontend, ffmpeg and CUDA libs |
-| Tests | **pytest, pytest-asyncio, httpx** | ~350 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
+| Tests | **pytest, pytest-asyncio, httpx** | ~370 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
 
 ---
 
@@ -173,6 +173,19 @@ Input: video + the user's own SRT / WebVTT / ASS (`utils/subtitle_parser.py` rea
 ### 4.5 Editing operations & Virtualized Studio Table
 All edits go through the REST API and renumber lines transactionally: single/bulk patch, **add a line** (`POST /segments`, overlap → `409`, timecode `HH:MM:SS,mmm` shared with the UI), **delete a line** (`DELETE /segments/{segment_id}` with renumbering), **bulk delete lines** (`DELETE /segments` with select-all and 1-click range expansion "Select from `#X` to end" / "Select from start to `#X`"), **move** (`/segments/move`, text moves and time slots stay, only the affected span is re-checked), **re-time**, **live job settings update** (`PATCH /jobs/{id}/settings` for `onscreen_position`), single/bulk project deletion (`POST /jobs/bulk-delete`, `DELETE /jobs`). In the studio, lines can be filtered by tag (`ON_SCREEN`, `COMMS`, `FOREIGN`, or any tagged cue) as well as by categorized problem filters (`ALL_PROBLEMS`, `UNTRANSLATED`, `LATIN_LEFTOVER`, `HIGH_CPS`). For 60fps responsiveness on 2,500+ line feature films, `SubtitleTable.tsx` uses windowed row virtualization (mounting only visible viewport rows + overscan buffer with top/bottom spacer rows), primitive `activeIndex` Zustand selector subscriptions, `useDeferredValue` search filtering, and quick jump to `#line` or `HH:MM:SS` timestamp.
 
+### 4.5.1 Edit history (undo / redo / History panel)
+`core/edit_history.py` + table `job_history`. Every editing route calls `history.begin()` before changing the subtitles (stores the
+state before the first edit as `original`, and drops steps ahead of the cursor, so an edit after an undo starts a new branch, as in
+Photoshop) and `history.record()` after committing (a zlib-compressed JSON snapshot of all the job's lines + its sha1). `jobs.history_cursor`
+points at the step that matches the subtitles now; undo/redo/restore replace the job's rows with a snapshot (keeping segment ids, or giving
+a new id when another job took one) and move the cursor — later steps stay until the next edit. Autosaves of the same line and field
+within 90 s update one step (`coalesce_key`); a no-op edit adds nothing; a change made outside the history (an interrupted run) is
+noticed by its digest and kept as an `external` step. A re-translation is one `translate` step (begun by `POST …/translate`, recorded by
+the orchestrator when the run ends). Nothing is recorded while a run is changing the subtitles, and undo is refused then (`409`). Edits of
+one job are serialised with a per-job lock; the newest 100 steps are kept. The studio shows Undo/Redo and the History panel in the table
+toolbar (`studio/table/HistoryControls`), with `Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` by physical key (works with a Hebrew layout); undo
+first waits for autosaves still in flight.
+
 ### 4.6 Cost-Saver Mode & Local AI Offloading (`cost_saver_mode`)
 - **Local frame pre-filtering (`onscreen_prefilter.py`):** Pillow-based edge detection and 64-bit difference hashing (`dHash`) filter out blank/textless frames and deduplicate consecutive identical title cards (while keeping steady-state boundary frames so sign disappearance times aren't truncated) before calling Gemini Vision, pruning ~75–80% of Vision image tokens.
 - **Whisper GPU VRAM unloading:** Faster-Whisper model is cleanly unallocated from GPU memory immediately after transcription completes, freeing VRAM for local LLMs or other GPU tasks on 8 GB cards.
@@ -193,6 +206,8 @@ All edits go through the REST API and renumber lines transactionally: single/bul
 `onscreen_position`, `enable_translation`, `convert_to_metric`, `remove_sdh_speakers`, `skip_end_credits`, `target_language`, `gemini_model`,
 `context_notes`, `glossary_profile`, `glossary_json`, `usage_json`, and for sync jobs
 `job_kind` (`transcribe` | `sync`), `sync_file_name`, `sync_source_json`, `sync_report_json`, plus timestamps.
+
+**`job_history`** — `id`, `job_id` (FK, cascade delete), `action`, `details_json`, `coalesce_key`, `segment_count`, `digest`, `snapshot` (zlib JSON of all lines), `created_at`; `jobs.history_cursor` is the current step.
 
 **`subtitle_segments`** — `id`, `job_id` (FK, cascade delete), `index`, `start_time`, `end_time`, `original_text`, `translated_text`,
 `translation_failed`, `segment_type`, `confidence`, `cps`.
@@ -215,6 +230,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 | Media | `POST /api/media/probe-path`, `POST /api/media/upload`, `GET /api/media/upload/existing`, `POST /api/media/parse-subtitles`, `GET /api/media/stream/{job_id}` (HTTP Range) |
 | Jobs | `POST/GET /api/jobs` (`sync_cues` makes a sync job), `GET/DELETE /api/jobs/{id}`, `DELETE /api/jobs`, `POST /api/jobs/bulk-delete`, `PATCH /api/jobs/{id}/settings`, `POST …/cancel`, `POST …/translate` |
 | Editing | `POST …/segments`, `DELETE …/segments/{id}`, `DELETE …/segments`, `PATCH …/segments/{id}`, `PATCH …/segments`, `POST …/segments/move`, `POST …/retime` |
+| History | `GET …/history`, `POST …/history/undo`, `POST …/history/redo`, `POST …/history/{entry_id}/restore` |
 | Translation tools | `PUT …/glossary`, `POST …/detect-speakers`, `GET …/qa`, `GET /api/glossary-profiles` |
 | Export | `GET …/export/srt`, `…/export/vtt`, `…/export/log`, `POST …/export/save-next-to-video` (writes `Movie.he.srt` into the video's folder; `exists` answer instead of overwriting unless `overwrite`; refused for uploads) |
 | Settings | `GET/PUT /api/settings`, `GET/PUT /api/settings/api-key`, `POST /api/settings/estimate`, `POST /api/settings/check`, `GET /api/settings/ollama/status`, `POST /api/settings/ollama/setup` |
@@ -261,7 +277,7 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 ---
 
 ## 10. Testing and quality gates
-- Backend: `pytest` in `backend/tests` (~350 tests). Whisper and Gemini are replaced by fakes; ffmpeg-based tests run end to end on generated clips (forced track, frame scan, whole pipeline, sync with synthetic delays/frame-rate/cuts). Areas: RTL fixer, SRT formatter, refine quality, speaker split & SDH cleanup, smart end-credits detection & post-credits scene preservation (`credits_detect`), embedded subtitle extraction, missing-speech Whisper supplement, FinOps local pre-filtering & Ollama pre-tagging, Whisper provider (cancel, fallback), Gemini provider (retries, flags, separate onscreen pass), settings/pricing/Flex, foreign speech, gap recovery, word snap, retime, row translate, glossary profiles, storage cleanup, sync, insert line, desktop launcher.
+- Backend: `pytest` in `backend/tests` (~370 tests). Whisper and Gemini are replaced by fakes; ffmpeg-based tests run end to end on generated clips (forced track, frame scan, whole pipeline, sync with synthetic delays/frame-rate/cuts). Areas: RTL fixer, SRT formatter, refine quality, speaker split & SDH cleanup, smart end-credits detection & post-credits scene preservation (`credits_detect`), embedded subtitle extraction, missing-speech Whisper supplement, FinOps local pre-filtering & Ollama pre-tagging, Whisper provider (cancel, fallback), Gemini provider (retries, flags, separate onscreen pass), settings/pricing/Flex, foreign speech, gap recovery, word snap, retime, row translate, glossary profiles, storage cleanup, sync, insert line, desktop launcher.
 - Frontend: `npx tsc -b`, `npx oxlint src` (0 warnings) and `npm run build` must pass; UI flows are checked in a headless browser in both English and Hebrew.
 - Windows-only behavior (tray, WebView2 window, CUDA loading) is verified manually on a Windows PC; the launcher's pure logic is unit-tested.
 

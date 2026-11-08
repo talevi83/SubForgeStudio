@@ -17,6 +17,8 @@ import type {
   InsertDraft,
   SegmentCreate,
   ProblemFilter,
+  EditHistory,
+  HistoryRestoreResult,
 } from '../types';
 
 const CONFIG_STORAGE_KEY = 'subforge.pipelineConfig';
@@ -131,7 +133,14 @@ interface JobState {
   error: string | null;
   timingBusy: boolean;
   timingNote: string | null;
-  timingUndo: { jobId: string; times: { id: number; start_time: number; end_time: number }[] } | null;
+  /** Edit history of the active job (undo / redo / jump to a step), see GET /jobs/{id}/history */
+  history: (EditHistory & { jobId: string }) | null;
+  historyBusy: boolean;
+  refreshHistory: () => Promise<void>;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+  /** Jump to any step; later steps stay available until the next edit */
+  restoreHistory: (entryId: number) => Promise<void>;
   /** The "add a subtitle line" dialog, when open */
   insertDraft: InsertDraft | null;
   openInsert: (draft: InsertDraft) => void;
@@ -172,7 +181,6 @@ interface JobState {
   replaceAll: (search: string, replacement: string, column: 'original' | 'translated', isRegex?: boolean) => Promise<number>;
   saveGlossary: (glossary: Glossary, profile?: string) => Promise<boolean>;
   retimeActiveJob: () => Promise<void>;
-  undoRetime: () => Promise<void>;
   moveSegment: (segmentId: number, toPosition: number) => Promise<void>;
   setVideoCurrentTime: (time: number) => void;
   setSelectedSegmentIndex: (index: number | null) => void;
@@ -187,6 +195,9 @@ interface JobState {
 let activeSocket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+/** Segment saves still on their way: undo waits for them, so a late autosave can't undo the undo */
+const inflightSaves = new Set<Promise<unknown>>();
+let historyRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -214,6 +225,34 @@ export const useJobStore = create<JobState>((set, get) => {
           : j
       ),
     });
+  };
+
+  /** Refresh the history list shortly after an edit (several quick edits -> one request). */
+  const scheduleHistoryRefresh = (delay = 250) => {
+    if (historyRefreshTimer) clearTimeout(historyRefreshTimer);
+    historyRefreshTimer = setTimeout(() => {
+      historyRefreshTimer = null;
+      void get().refreshHistory();
+    }, delay);
+  };
+
+  const runHistoryAction = async (action: (jobId: string) => Promise<HistoryRestoreResult>) => {
+    const { activeJob, historyBusy, timingBusy } = get();
+    if (!activeJob || historyBusy || timingBusy || isActiveStatus(activeJob.status)) return;
+    const jobId = activeJob.id;
+    set({ historyBusy: true });
+    try {
+      await Promise.allSettled([...inflightSaves]);
+      const res = await action(jobId);
+      if (get().activeJob?.id !== jobId) return;
+      patchActiveJob({ segments: res.segments });
+      set({ history: { ...res.history, jobId }, timingNote: null });
+    } catch (e: unknown) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      void get().refreshHistory();
+    } finally {
+      set({ historyBusy: false });
+    }
   };
 
   const handleMessage = (data: WebSocketEventPayload) => {
@@ -275,6 +314,8 @@ export const useJobStore = create<JobState>((set, get) => {
         set({ stageMessage: null });
         get().refreshActiveJob();
         get().fetchJobs();
+        // A retranslation becomes a history step as the run ends (a failed run records it just after)
+        scheduleHistoryRefresh(800);
         break;
       }
     }
@@ -299,7 +340,21 @@ export const useJobStore = create<JobState>((set, get) => {
     error: null,
     timingBusy: false,
     timingNote: null,
-    timingUndo: null,
+    history: null,
+    historyBusy: false,
+    refreshHistory: async () => {
+      const id = get().activeJob?.id;
+      if (!id) return;
+      try {
+        const h = await api.getHistory(id);
+        if (get().activeJob?.id === id) set({ history: { ...h, jobId: id } });
+      } catch {
+        /* the history list is a convenience; editing keeps working */
+      }
+    },
+    undo: () => runHistoryAction((id) => api.undo(id)),
+    redo: () => runHistoryAction((id) => api.redo(id)),
+    restoreHistory: (entryId) => runHistoryAction((id) => api.restoreHistory(id, entryId)),
     insertDraft: null,
     openInsert: (draft) => {
       const job = get().activeJob;
@@ -317,6 +372,7 @@ export const useJobStore = create<JobState>((set, get) => {
         patchActiveJob({ segments: res.segments });
         const created = res.segments.find((s) => s.id === res.created_id);
         set({ insertDraft: null, selectedSegmentIndex: created?.index ?? null });
+        scheduleHistoryRefresh();
         if (created) get().seekTo(Math.max(0, created.start_time - 0.5));
         return null;
       } catch (e: unknown) {
@@ -331,6 +387,7 @@ export const useJobStore = create<JobState>((set, get) => {
         if (get().activeJob?.id !== job.id) return null;
         patchActiveJob({ segments: res.segments });
         set({ selectedSegmentIndex: null });
+        scheduleHistoryRefresh();
         return null;
       } catch (e: unknown) {
         return e instanceof Error ? e.message : String(e);
@@ -344,6 +401,7 @@ export const useJobStore = create<JobState>((set, get) => {
         if (get().activeJob?.id !== job.id) return null;
         patchActiveJob({ segments: res.segments });
         set({ selectedSegmentIndex: null });
+        scheduleHistoryRefresh();
         return null;
       } catch (e: unknown) {
         return e instanceof Error ? e.message : String(e);
@@ -409,6 +467,7 @@ export const useJobStore = create<JobState>((set, get) => {
         const job = await api.getJob(jobId);
         set({
           activeJob: job,
+          history: null,
           isLoading: false,
           insertDraft: null,
           selectedSegmentIndex: null,
@@ -418,6 +477,7 @@ export const useJobStore = create<JobState>((set, get) => {
           stageMessage: null,
         });
         get().connectWebSocket(jobId);
+        void get().refreshHistory();
       } catch (e: any) {
         set({ error: e.message, isLoading: false });
       }
@@ -438,6 +498,7 @@ export const useJobStore = create<JobState>((set, get) => {
       get().disconnectWebSocket();
       set({
         activeJob: null,
+        history: null,
         probeResult: null,
         insertDraft: null,
         syncFile: null,
@@ -581,7 +642,10 @@ export const useJobStore = create<JobState>((set, get) => {
       });
 
       try {
-        const saved = await api.updateSegment(jobId, segmentId, patch);
+        const request = api.updateSegment(jobId, segmentId, patch);
+        inflightSaves.add(request);
+        const saved = await request.finally(() => inflightSaves.delete(request));
+        scheduleHistoryRefresh();
         const current = get().activeJob;
         if (!current || current.id !== jobId) return;
         set({
@@ -627,41 +691,15 @@ export const useJobStore = create<JobState>((set, get) => {
       const { activeJob, timingBusy } = get();
       if (!activeJob || timingBusy) return;
       const jobId = activeJob.id;
-      const before = activeJob.segments
-        .filter((s) => s.id)
-        .map((s) => ({ id: s.id!, start_time: s.start_time, end_time: s.end_time }));
       set({ timingBusy: true, timingNote: null });
       try {
         const res = await api.retimeJob(jobId);
         if (get().activeJob?.id !== jobId) return;
         patchActiveJob({ segments: res.segments });
-        set({
-          timingNote: String(res.changed),
-          timingUndo: res.changed > 0 ? { jobId, times: before } : null,
-        });
+        set({ timingNote: String(res.changed) });
+        scheduleHistoryRefresh();
       } catch (e: any) {
         set({ error: e.message, timingNote: null });
-      } finally {
-        set({ timingBusy: false });
-      }
-    },
-
-    undoRetime: async () => {
-      const { timingUndo, activeJob } = get();
-      if (!timingUndo || !activeJob || activeJob.id !== timingUndo.jobId) return;
-      set({ timingBusy: true });
-      try {
-        const saved = await api.updateSegments(timingUndo.jobId, timingUndo.times);
-        const byId = new Map(saved.map((s) => [s.id, s]));
-        const current = get().activeJob;
-        if (current && current.id === timingUndo.jobId) {
-          patchActiveJob({
-            segments: current.segments.map((s) => (s.id && byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)),
-          });
-        }
-        set({ timingUndo: null, timingNote: null });
-      } catch (e: any) {
-        set({ error: e.message });
       } finally {
         set({ timingBusy: false });
       }
@@ -671,11 +709,12 @@ export const useJobStore = create<JobState>((set, get) => {
       const { activeJob, timingBusy } = get();
       if (!activeJob || timingBusy) return;
       const jobId = activeJob.id;
-      set({ timingBusy: true, timingNote: null, timingUndo: null });
+      set({ timingBusy: true, timingNote: null });
       try {
         const res = await api.moveSegment(jobId, segmentId, toPosition);
         if (get().activeJob?.id !== jobId) return;
         patchActiveJob({ segments: res.segments });
+        scheduleHistoryRefresh();
         if (res.message) set({ error: res.message });
       } catch (e: any) {
         set({ error: e.message });
@@ -724,6 +763,7 @@ export const useJobStore = create<JobState>((set, get) => {
         patchActiveJob({
           segments: activeJob.segments.map((s) => (s.id && byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)),
         });
+        scheduleHistoryRefresh();
         return patches.length;
       } catch (e: any) {
         set({ error: e.message });

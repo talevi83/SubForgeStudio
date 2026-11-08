@@ -1,4 +1,6 @@
+import functools
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -6,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app.core import edit_history as history
 from app.core.config import settings
 from app.core.database import get_session
 from app.core.glossary_profiles import clean_name, save_profile
@@ -37,6 +40,34 @@ from app.utils.rtl_fixer import strip_directional_marks
 from app.utils.srt_formatter import calculate_cps
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
+logger = logging.getLogger(__name__)
+
+
+def _history_locked(fn):
+    """One history-changing request per job at a time (overlapping autosaves would interleave)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with history.job_lock(kwargs["job_id"]):
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+def _history_begin(session: Session, job: Job) -> bool:
+    """Start recording an edit. Not while a run is changing the subtitles (it is caught up later)."""
+    if job.status in ACTIVE_STATUSES:
+        return False
+    history.begin(session, job)
+    return True
+
+
+def _history_record(session: Session, job: Job, recording: bool, action: str,
+                    details: Optional[dict] = None, coalesce_key: Optional[str] = None) -> None:
+    if not recording:
+        return
+    try:
+        history.record(session, job, action, details, coalesce_key)
+    except Exception as e:  # the edit itself is saved; never fail the request over its history
+        logger.warning(f"Could not record edit history for {job.id}: {e}")
 
 
 def _segment_to_schema(s: SubtitleSegmentRecord) -> SubtitleSegmentSchema:
@@ -266,6 +297,7 @@ def update_job_settings(job_id: str, req: JobSettingsUpdate, session: Session = 
 
 
 @router.delete("/{job_id}/segments", response_model=SegmentsChangeResponse)
+@_history_locked
 def delete_segments_bulk(job_id: str, segment_ids: List[int], session: Session = Depends(get_session)):
     """Delete multiple subtitle lines by ID and renumber remaining lines."""
     job = _get_job_or_404(session, job_id)
@@ -274,6 +306,7 @@ def delete_segments_bulk(job_id: str, segment_ids: List[int], session: Session =
     if not segment_ids:
         rows = _ordered_rows(session, job_id)
         return SegmentsChangeResponse(changed=0, segments=[_segment_to_schema(r) for r in rows])
+    recording = _history_begin(session, job)
     to_delete = session.exec(
         select(SubtitleSegmentRecord).where(
             SubtitleSegmentRecord.job_id == job_id,
@@ -289,6 +322,7 @@ def delete_segments_bulk(job_id: str, segment_ids: List[int], session: Session =
         row.index = position
         session.add(row)
     session.commit()
+    _history_record(session, job, recording, "delete_many", {"count": len(to_delete)})
     return SegmentsChangeResponse(changed=len(to_delete), segments=[_segment_to_schema(r) for r in rows])
 
 
@@ -364,6 +398,8 @@ async def retranslate_job(job_id: str, req: RetranslateRequest, session: Session
     job.gemini_model = req.gemini_model or default_model
     if req.context_notes is not None:
         job.context_notes = req.context_notes
+    with history.job_lock(job_id):
+        history.begin(session, job)  # the run records its result as one step when it ends
     job.enable_translation = True
     job.status = JobStatus.TRANSLATING
     job.current_stage = "TRANSLATING"
@@ -573,6 +609,7 @@ def _apply_segment_patch(seg: SubtitleSegmentRecord, patch: SegmentUpdate) -> No
 
 
 @router.patch("/{job_id}/segments/{segment_id}", response_model=SubtitleSegmentSchema)
+@_history_locked
 def update_segment(
     job_id: str,
     segment_id: int,
@@ -583,15 +620,26 @@ def update_segment(
     seg = session.get(SubtitleSegmentRecord, segment_id)
     if not seg or seg.job_id != job_id:
         raise HTTPException(status_code=404, detail="Subtitle segment not found")
+    job = _get_job_or_404(session, job_id)
+    recording = _history_begin(session, job)
 
     _apply_segment_patch(seg, patch)
     session.add(seg)
     session.commit()
     session.refresh(seg)
+    fields = sorted(patch.model_dump(exclude_unset=True, exclude_none=True))
+    timing_only = bool(fields) and set(fields) <= {"start_time", "end_time"}
+    _history_record(
+        session, job, recording, "edit_timing" if timing_only else "edit",
+        {"index": seg.index, "segment_id": seg.id, "fields": fields},
+        coalesce_key=f"{'timing' if timing_only else 'text'}:{seg.id}:{','.join(fields)}",
+    )
+    session.refresh(seg)
     return _segment_to_schema(seg)
 
 
 @router.patch("/{job_id}/segments", response_model=List[SubtitleSegmentSchema])
+@_history_locked
 def update_segments_bulk(
     job_id: str,
     patches: List[BulkSegmentUpdate],
@@ -611,11 +659,14 @@ def update_segments_bulk(
     missing = [i for i in ids if i not in rows]
     if missing:
         raise HTTPException(status_code=404, detail=f"Subtitle segments not found: {missing}")
+    job = _get_job_or_404(session, job_id)
+    recording = _history_begin(session, job)
     for p in patches:
         _apply_segment_patch(rows[p.id], p)
         session.add(rows[p.id])
     session.commit()
-    return [_segment_to_schema(rows[i]) for i in ids]
+    _history_record(session, job, recording, "bulk_edit", {"count": len(patches)})
+    return [_segment_to_schema(session.get(SubtitleSegmentRecord, i)) for i in ids]
 
 
 _SEGMENT_TYPES = {"DIALOGUE", "COMMS", "ON_SCREEN", "FOREIGN"}
@@ -628,6 +679,7 @@ def _timecode(seconds: float) -> str:
 
 
 @router.post("/{job_id}/segments", response_model=SegmentsChangeResponse)
+@_history_locked
 def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(get_session)):
     """Add a subtitle line by hand. It must not overlap an existing line; lines are renumbered."""
     job = _get_job_or_404(session, job_id)
@@ -667,6 +719,7 @@ def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(g
         raise HTTPException(status_code=409, detail=(
             f"Overlaps line #{position} ({_timecode(clash.start_time)} - {_timecode(clash.end_time)})"))
 
+    recording = _history_begin(session, job)
     new = SubtitleSegmentRecord(
         job_id=job_id, index=0, start_time=start, end_time=end,
         original_text=original, translated_text=translated or None, translation_failed=False,
@@ -681,10 +734,13 @@ def create_segment(job_id: str, req: SegmentCreate, session: Session = Depends(g
         session.add(row)
     session.commit()
     session.refresh(new)
+    _history_record(session, job, recording, "insert", {"index": new.index})
+    rows = _ordered_rows(session, job_id)
     return SegmentsChangeResponse(changed=1, created_id=new.id, segments=[_segment_to_schema(r) for r in rows])
 
 
 @router.delete("/{job_id}/segments/{segment_id}", response_model=SegmentsChangeResponse)
+@_history_locked
 def delete_segment(job_id: str, segment_id: int, session: Session = Depends(get_session)):
     """Delete a subtitle line by user request and renumber subsequent lines."""
     job = _get_job_or_404(session, job_id)
@@ -694,6 +750,8 @@ def delete_segment(job_id: str, segment_id: int, session: Session = Depends(get_
     if not seg or seg.job_id != job_id:
         raise HTTPException(status_code=404, detail="Subtitle segment not found")
 
+    recording = _history_begin(session, job)
+    deleted_index = seg.index
     session.delete(seg)
     session.flush()
 
@@ -703,8 +761,9 @@ def delete_segment(job_id: str, segment_id: int, session: Session = Depends(get_
         row.index = position
         session.add(row)
     session.commit()
+    _history_record(session, job, recording, "delete", {"index": deleted_index})
 
-    return SegmentsChangeResponse(changed=1, segments=[_segment_to_schema(r) for r in rows])
+    return SegmentsChangeResponse(changed=1, segments=[_segment_to_schema(r) for r in _ordered_rows(session, job_id)])
 
 
 # --- Timing-only tools -------------------------------------------------------------------------
@@ -762,6 +821,7 @@ def _require_finished(job: Job) -> None:
 
 
 @router.post("/{job_id}/retime", response_model=SegmentsChangeResponse)
+@_history_locked
 def retime_job(job_id: str, req: RetimeRequest, session: Session = Depends(get_session)):
     """Timing-only check against the audio: whole video, or only the cues inside [start, end]."""
     job = _get_job_or_404(session, job_id)
@@ -773,6 +833,7 @@ def retime_job(job_id: str, req: RetimeRequest, session: Session = Depends(get_s
         lo = req.start if req.start is not None else 0.0
         hi = req.end if req.end is not None else float("inf")
         scope = [i for i, r in enumerate(rows) if r.end_time >= lo and r.start_time <= hi]
+    recording = _history_begin(session, job)
     try:
         changed = _retime_rows(job, rows, scope, allow_silent_shift=False)
     except Exception as e:  # ffmpeg / VAD failures must not take the job down
@@ -781,10 +842,12 @@ def retime_job(job_id: str, req: RetimeRequest, session: Session = Depends(get_s
         _refresh_cps(r)
         session.add(r)
     session.commit()
-    return SegmentsChangeResponse(changed=changed, segments=[_segment_to_schema(r) for r in rows])
+    _history_record(session, job, recording, "retime", {"count": changed})
+    return SegmentsChangeResponse(changed=changed, segments=[_segment_to_schema(r) for r in _ordered_rows(session, job_id)])
 
 
 @router.post("/{job_id}/segments/move", response_model=SegmentsChangeResponse)
+@_history_locked
 def move_segment(job_id: str, req: MoveSegmentRequest, session: Session = Depends(get_session)):
     """
     Move one row to another position: the *content* travels, the time slots stay where they are,
@@ -799,6 +862,7 @@ def move_segment(job_id: str, req: MoveSegmentRequest, session: Session = Depend
     if new == old:
         return SegmentsChangeResponse(changed=0, segments=[_segment_to_schema(r) for r in rows])
 
+    recording = _history_begin(session, job)
     lo, hi = min(old, new), max(old, new)
     contents = [{f: getattr(rows[i], f) for f in _MOVE_FIELDS} for i in range(lo, hi + 1)]
     moved = contents.pop(old - lo)
@@ -820,6 +884,8 @@ def move_segment(job_id: str, req: MoveSegmentRequest, session: Session = Depend
         _refresh_cps(r)
         session.add(r)
     session.commit()
+    _history_record(session, job, recording, "move", {"from": old + 1, "to": new + 1})
+    rows = _ordered_rows(session, job_id)
     return SegmentsChangeResponse(
         changed=changed, retimed=retimed, message=message, segments=[_segment_to_schema(r) for r in rows]
     )

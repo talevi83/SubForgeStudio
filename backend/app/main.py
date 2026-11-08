@@ -15,7 +15,7 @@ from app.core.request_guard import CrossSiteRequestGuard
 from app.core.database import init_db
 from app.core.housekeeping import cleanup_storage
 from app.core.ws_manager import ws_manager
-from app.api import routes_system, routes_media, routes_jobs, routes_export, routes_settings, routes_glossary, routes_storage
+from app.api import routes_system, routes_media, routes_jobs, routes_export, routes_settings, routes_glossary, routes_storage, routes_history
 from app.pipeline.orchestrator import recover_interrupted_jobs
 
 from app.core.job_logging import setup_logging
@@ -76,6 +76,7 @@ app.include_router(routes_export.router)
 app.include_router(routes_settings.router)
 app.include_router(routes_glossary.router)
 app.include_router(routes_storage.router)
+app.include_router(routes_history.router)
 
 
 @app.websocket("/ws/jobs/{job_id}")

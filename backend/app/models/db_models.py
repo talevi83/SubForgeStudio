@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List
+from sqlalchemy import Column, LargeBinary
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -108,12 +109,18 @@ class Job(SQLModel, table=True):
     sync_file_name: Optional[str] = None
     sync_source_json: Optional[str] = None  # the uploaded cues (with their original times) and options
     sync_report_json: Optional[str] = None  # how the sync went (methods, offset, frame rate, cuts)
+    # Edit history: the JobHistoryEntry that matches the subtitles right now (see core/edit_history.py)
+    history_cursor: Optional[int] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     segments: List[SubtitleSegmentRecord] = Relationship(
         back_populates="job",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "order_by": "SubtitleSegmentRecord.index"}
+    )
+    history: List["JobHistoryEntry"] = Relationship(
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan", "order_by": "JobHistoryEntry.id"}
     )
 
     @property
@@ -124,3 +131,24 @@ class Job(SQLModel, table=True):
         if self.source_language and self.source_language.lower() not in ("auto", "none"):
             return language_code(self.source_language) or self.source_language
         return language_code(self.detected_language) or self.detected_language
+
+
+class JobHistoryEntry(SQLModel, table=True):
+    """One step of a job's edit history: the subtitles as they were after an action (or before the first one)."""
+
+    __tablename__ = "job_history"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: str = Field(index=True, foreign_key="jobs.id")
+    # "original", "edit", "bulk_edit", "insert", "delete", "delete_many", "move", "retime", "translate", "external"
+    action: str
+    details_json: Optional[str] = None  # small JSON for the label: line number, count, ...
+    # Consecutive edits with the same key (typing in one line) update one entry instead of adding more
+    coalesce_key: Optional[str] = None
+    segment_count: int = 0
+    digest: str  # sha1 of the uncompressed snapshot, to notice "nothing changed" / outside changes
+    snapshot: bytes = Field(sa_column=Column(LargeBinary, nullable=False))  # zlib-compressed JSON rows
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    job: Optional[Job] = Relationship(back_populates="history")
+

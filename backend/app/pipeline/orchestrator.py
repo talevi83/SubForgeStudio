@@ -591,6 +591,7 @@ class PipelineOrchestrator:
                 eta_seconds=None,
                 warning_message=warning,
             )
+            self._record_history()  # before the event, so the studio's history refresh sees the step
             await self._broadcast({
                 "event": "JOB_COMPLETED",
                 "stage": "COMPLETED",
@@ -613,8 +614,24 @@ class PipelineOrchestrator:
             await self._stop_frame_sampling(ctx)
             await self._stop_burned_detection(ctx)
             self._persist_usage(ctx)
+            self._record_history()  # a failed / cancelled run still keeps what it translated
             log_job_summary(self.job_id, ctx)
             active_pipelines.pop(self.job_id, None)
+
+    def _record_history(self) -> None:
+        """A (re)translation of a finished project becomes one step of its edit history."""
+        if self.mode != "translate":
+            return
+        from app.core.edit_history import record_job
+
+        if self.only_indices:
+            details = {"scope": "rows", "count": len(self.only_indices)}
+        else:
+            details = {"scope": "failed" if self.only_failed else "all"}
+        try:
+            record_job(self.job_id, engine, "translate", details)
+        except Exception as e:  # history must never break the pipeline
+            logger.warning(f"Could not record edit history for {self.job_id}: {e}")
 
     def _progress_callback(self, stage_status: JobStatus, base_pct: float, share: float):
         last_db_write = [0.0]
