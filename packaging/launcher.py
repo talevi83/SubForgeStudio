@@ -372,6 +372,50 @@ def window_problem() -> Optional[str]:
     return None
 
 
+def read_clipboard_text() -> Optional[str]:
+    """Unicode text on the Windows clipboard ('' when it holds none); None where unsupported or busy.
+
+    The page's own navigator.clipboard.readText() needs a permission WebView2 may refuse or
+    prompt for, so the window's "Paste" menu asks the app through the bridge instead.
+    """
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    cf_unicodetext = 13
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.OpenClipboard.argtypes = [wintypes.HWND]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.GetClipboardData.argtypes = [wintypes.UINT]
+    user32.GetClipboardData.restype = wintypes.HANDLE
+    user32.CloseClipboard.restype = wintypes.BOOL
+    kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalLock.restype = wintypes.LPVOID
+    kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+
+    for _ in range(10):  # another program may hold the clipboard for a moment
+        if user32.OpenClipboard(None):
+            break
+        time.sleep(0.02)
+    else:
+        return None
+    try:
+        handle = user32.GetClipboardData(cf_unicodetext)
+        if not handle:
+            return ""
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return None
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
 class DesktopApi:
     """Called from the page as window.pywebview.api.* (pywebview's JavaScript bridge)."""
 
@@ -386,6 +430,13 @@ class DesktopApi:
             self._fullscreen = on
             self._window.toggle_fullscreen()
         return self._fullscreen
+
+    def read_clipboard(self) -> Optional[str]:
+        """Clipboard text for the "Paste" context menu (None: let the page try its own clipboard API)."""
+        try:
+            return read_clipboard_text()
+        except Exception:
+            return None
 
 
 def _load_window_size(home: Path):

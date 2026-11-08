@@ -6,7 +6,7 @@ import type { OnscreenPosition } from '../../types';
 import { TARGET_LANGUAGES } from '../ingest/languages';
 import { useT } from '../../i18n';
 import { GlossaryDialog } from './GlossaryDialog';
-import { AlertTriangle, Download, FileText, Languages, LayoutTemplate, RotateCw, ScrollText, Users } from 'lucide-react';
+import { AlertTriangle, Download, FileText, FolderDown, Languages, LayoutTemplate, Loader2, RotateCw, ScrollText, Users } from 'lucide-react';
 
 export const ExportToolbar: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
@@ -22,6 +22,8 @@ export const ExportToolbar: React.FC = () => {
   const setSelectedSegmentIndex = useJobStore((s) => s.setSelectedSegmentIndex);
   const [targetLanguage, setTargetLanguage] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveNote, setSaveNote] = useState<{ ok: boolean; text: string } | null>(null);
   const t = useT();
 
   if (!activeJob) return null;
@@ -44,6 +46,28 @@ export const ExportToolbar: React.FC = () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  const showSaveNote = (ok: boolean, text: string) => {
+    setSaveNote({ ok, text });
+    setTimeout(() => setSaveNote((cur) => (cur?.text === text ? null : cur)), ok ? 6000 : 9000);
+  };
+
+  const saveNextToVideo = async () => {
+    setSaving(true);
+    try {
+      const options = { format: 'srt' as const, use_translated: true, apply_rtl: applyRtlExport };
+      let result = await api.saveNextToVideo(activeJob.id, options);
+      if (!result.saved && result.exists) {
+        if (!confirm(t('toolbar.confirmOverwrite', { path: result.path }))) return;
+        result = await api.saveNextToVideo(activeJob.id, { ...options, overwrite: true });
+      }
+      if (result.saved) showSaveNote(true, t('toolbar.savedNextToVideo', { path: result.path }));
+    } catch (e) {
+      showSaveNote(false, e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const translateAll = () => {
@@ -191,6 +215,29 @@ export const ExportToolbar: React.FC = () => {
             <Download className="w-3.5 h-3.5" />
             {t('toolbar.translatedSrt')}
           </button>
+        )}
+        {hasTranslation && (
+          <button
+            onClick={() => void saveNextToVideo()}
+            disabled={!hasSegments || saving || !!activeJob.is_upload}
+            title={activeJob.is_upload ? t('toolbar.saveNextToVideoUploaded') : t('toolbar.saveNextToVideoTitle')}
+            data-testid="save-next-to-video"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/15 hover:bg-indigo-600/25 disabled:opacity-40 text-indigo-200 border border-indigo-500/40 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderDown className="w-3.5 h-3.5" />}
+            {t('toolbar.saveNextToVideo')}
+          </button>
+        )}
+        {saveNote && (
+          <span
+            role="status"
+            dir="auto"
+            data-testid="save-next-to-video-note"
+            title={saveNote.text}
+            className={`basis-full text-[11px] truncate ${saveNote.ok ? 'text-emerald-300' : 'text-rose-300'}`}
+          >
+            {saveNote.text}
+          </span>
         )}
         <button
           onClick={() => downloadFile(api.getExportUrl(activeJob.id, 'srt', false, false))}

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { api } from '../../services/api';
 import { useJobStore } from '../../store/useJobStore';
 import { useT } from '../../i18n';
 import { formatClock } from '../../utils/time';
+import { readClipboardText } from '../../utils/desktop';
+import { PasteContextMenu } from '../common/PasteContextMenu';
 import { Upload, HardDrive, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 export const MediaDropzone: React.FC = () => {
@@ -14,6 +16,32 @@ export const MediaDropzone: React.FC = () => {
   const [isProbing, setIsProbing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pathInputRef = useRef<HTMLInputElement | null>(null);
+  const [pasteMenu, setPasteMenu] = useState<{ x: number; y: number } | null>(null);
+  const closePasteMenu = useCallback(() => setPasteMenu(null), []);
+
+  // Right-click on the path field offers only "Paste" (the text goes in at the cursor, like Ctrl+V)
+  const pasteIntoPath = async () => {
+    setPasteMenu(null);
+    const text = (await readClipboardText())?.replace(/[\r\n]+/g, ' ').trim();
+    if (text === undefined || text === null) {
+      setError(t('dropzone.pasteFailed'));
+      return;
+    }
+    if (!text) return;
+    const input = pathInputRef.current;
+    const start = input?.selectionStart ?? localPath.length;
+    const end = input?.selectionEnd ?? localPath.length;
+    const next = localPath.slice(0, start) + text + localPath.slice(end);
+    setLocalPath(next);
+    setError(null);
+    requestAnimationFrame(() => {
+      if (!input) return;
+      input.focus();
+      const caret = start + text.length;
+      input.setSelectionRange(caret, caret);
+    });
+  };
 
   const handleProbeLocalPath = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,10 +115,16 @@ export const MediaDropzone: React.FC = () => {
           <label className="block text-xs font-medium text-zinc-300">{t('dropzone.pathLabel')}</label>
           <div className="flex gap-2">
             <input
+              ref={pathInputRef}
               type="text"
               dir="ltr"
               value={localPath}
               onChange={(e) => setLocalPath(e.target.value)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setPasteMenu({ x: e.clientX, y: e.clientY });
+              }}
+              data-testid="local-path-input"
               placeholder={t('dropzone.pathPlaceholder')}
               className="flex-1 bg-sunken border border-line rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 font-mono"
             />
@@ -110,6 +144,9 @@ export const MediaDropzone: React.FC = () => {
             </button>
           </div>
           <p className="text-[11px] text-zinc-500">{t('dropzone.pathHint')}</p>
+          {pasteMenu && (
+            <PasteContextMenu x={pasteMenu.x} y={pasteMenu.y} onPaste={() => void pasteIntoPath()} onClose={closePasteMenu} />
+          )}
         </form>
       ) : (
         <div

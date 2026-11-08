@@ -6,6 +6,9 @@ export const he: Messages = {
     ingestSubtitle: 'תמלול באיכות שידור עם faster-whisper ותרגום עם Gemini',
     dismiss: 'סגור',
   },
+  common: {
+    paste: 'הדבק',
+  },
   status: {
     IDLE: 'מתחיל',
     QUEUED: 'בתור',
@@ -93,6 +96,7 @@ export const he: Messages = {
     probed: 'מוכן: {name} ({size} MB, {duration})',
     probeFailed: 'בדיקת קובץ הווידאו נכשלה',
     uploadFailed: 'העלאת הקובץ נכשלה',
+    pasteFailed: 'לא ניתן לקרוא את הלוח — לחצו Ctrl+V.',
   },
   streams: {
     title: 'ערוצי המדיה',
@@ -481,6 +485,11 @@ export const he: Messages = {
     webvtt: 'WebVTT',
     jobLog: 'לוג',
     jobLogTitle: 'הורד לוג מפורט של הפרויקט: הגדרות, כל שלב, שגיאות Gemini וניסיונות חוזרים',
+    saveNextToVideo: 'שמור ליד הווידאו',
+    saveNextToVideoTitle: 'שומר את ה־SRT המתורגם בתיקייה של קובץ הווידאו, בשם שמתאים לשרתי מדיה (Movie.he.srt)',
+    saveNextToVideoUploaded: 'זמין רק לסרטונים שנפתחו מנתיב במחשב — לעותק שהועלה דרך הדפדפן אין תיקייה משלו',
+    confirmOverwrite: '{path}\nכבר קיים. להחליף אותו?',
+    savedNextToVideo: 'נשמר: {path}',
     stillTranslating: 'התרגום עדיין רץ: {count} שורות עוד לא תורגמו',
     untranslated: '{count} שורות לא תורגמו',
     untranslatedTitle: 'בקובץ המתורגם השורות האלה יישארו בשפת המקור (לחץ לסינון בטבלה)',

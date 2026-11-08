@@ -4,6 +4,9 @@ export const en = {
     ingestSubtitle: 'Broadcast-quality transcription with faster-whisper and Gemini translation',
     dismiss: 'Dismiss',
   },
+  common: {
+    paste: 'Paste',
+  },
   status: {
     IDLE: 'Starting',
     QUEUED: 'Queued',
@@ -91,6 +94,7 @@ export const en = {
     probed: 'Ready: {name} ({size} MB, {duration})',
     probeFailed: 'Failed to inspect the video file',
     uploadFailed: 'File upload failed',
+    pasteFailed: 'Could not read the clipboard — press Ctrl+V instead.',
   },
   streams: {
     title: 'Media Stream Inspector',
@@ -479,6 +483,11 @@ export const en = {
     webvtt: 'WebVTT',
     jobLog: 'Log',
     jobLogTitle: 'Download a detailed log of this job: settings, every stage, Gemini errors and retries',
+    saveNextToVideo: 'Save next to video',
+    saveNextToVideoTitle: 'Save the translated .SRT in the video\'s folder, named for media servers (Movie.he.srt)',
+    saveNextToVideoUploaded: 'Only for videos opened from a path on this PC — an uploaded copy has no folder of its own',
+    confirmOverwrite: '{path}\nalready exists. Replace it?',
+    savedNextToVideo: 'Saved: {path}',
     stillTranslating: 'Still translating: {count} lines not translated yet',
     untranslated: '{count} lines not translated',
     untranslatedTitle: 'In the translated file these lines stay in the original language (click to filter in table)',

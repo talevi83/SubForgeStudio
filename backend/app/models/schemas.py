@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Any, Dict
+from typing import List, Literal, Optional, Any, Dict
 from pydantic import BaseModel, Field
 from app.models.db_models import JobStatus
 
@@ -310,3 +310,19 @@ class SystemInfoResponse(BaseModel):
     whisper_models: List[str] = []
     max_cps_warning: float = 20.0
     hardware: Dict[str, Any]
+
+
+class SaveNextToVideoRequest(BaseModel):
+    """Write the subtitles into the folder of the job's video (Movie.he.srt next to Movie.mkv)."""
+    format: Literal["srt", "vtt"] = "srt"
+    use_translated: bool = True
+    apply_rtl: bool = True
+    # A file with the same name already next to the video is only replaced when this is true
+    overwrite: bool = False
+
+
+class SaveNextToVideoResponse(BaseModel):
+    saved: bool
+    path: str
+    # True when the file already existed (with overwrite=false nothing was written)
+    exists: bool
