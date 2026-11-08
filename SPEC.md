@@ -31,7 +31,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 5. **Official Gemini SDK (`google-genai`) and typed configuration.** Defaults come from `backend/.env` via `pydantic-settings`;
    the Settings screen overrides them in `storage/settings.json` (and can persist `GEMINI_API_KEY` to `.env` via `PUT /api/settings/api-key`). Per-job API key overrides typed in the Ingest screen are used in memory for that run only.
 6. **Safe by default for a local server.** The API can read any path on the PC, so it binds to `127.0.0.1`, uses an explicit
-   CORS allow-list and a trusted-host check (against DNS rebinding).
+   CORS allow-list, a trusted-host check (against DNS rebinding) and a cross-site request guard (against CSRF).
 7. **Nothing is lost.** Results are saved as soon as they exist (after refinement and after every translated batch); failures
    are flagged on the line, never silently dropped; jobs interrupted by a restart are recovered.
 
@@ -88,9 +88,9 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 
 | Package | Contents |
 |---|---|
-| `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware, routers, WebSocket endpoint, static hosting of `SUBFORGE_FRONTEND_DIST` / `frontend/dist` |
+| `main.py` | App factory: lifespan (DB init, crash recovery, housekeeping), middleware (TrustedHost, CORS, `CrossSiteRequestGuard`), routers, WebSocket endpoint, static hosting of `SUBFORGE_FRONTEND_DIST` / `frontend/dist` |
 | `api/` | One router per area (see §6): `routes_system`, `routes_media`, `routes_jobs`, `routes_export`, `routes_settings`, `routes_glossary`, `routes_storage` |
-| `core/` | `config` (settings), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `ollama_setup` (Ollama lifecycle/install), `compat` (PyAV/faster-whisper shim) |
+| `core/` | `config` (settings), `request_guard` (CSRF / cross-site WebSocket guard), `database` (engine + additive migration), `hardware` (GPU detection, CUDA DLL paths), `model_catalog` (Gemini models, prices, thinking options, cost estimates), `user_settings`, `glossary_profiles`, `ws_manager`, `job_logging`, `housekeeping`, `storage_cleanup`, `ollama_setup` (Ollama lifecycle/install), `compat` (PyAV/faster-whisper shim) |
 | `models/` | `db_models` (tables, `JobStatus`, `SegmentType`), `schemas` (Pydantic request/response models) |
 | `pipeline/` | `orchestrator`, `context` (state passed between stages), `stages/*`, `missing_speech` (Whisper supplement for embedded/synced subtitles), `onscreen_prefilter` (edge & dHash frame filter with steady-state retention), `credits_detect` (smart end-credits detection & mid/post-credits scene preservation), `gender_pretag` (local Ollama pre-tagger), `glossary_pruner` (batch glossary pruner), and the algorithms below |
 | `providers/` | `transcription/` (`BaseTranscriber`, faster-whisper), `translation/` (`BaseTranslator`, Gemini, Noop), `gemini_calls` (Flex tier wrapper) |
@@ -246,7 +246,13 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 ---
 
 ## 9. Security and privacy
-- Server binds to `127.0.0.1`; CORS allow-list (`cors_origins`); `TrustedHostMiddleware` (`ALLOWED_HOSTS`) blocks DNS rebinding. Changing `HOST` to `0.0.0.0` requires adding the LAN names to `ALLOWED_HOSTS` and exposes a file-reading API — documented as unsafe by default.
+- Server binds to `127.0.0.1`; CORS allow-list (`cors_origins`); `TrustedHostMiddleware` (`ALLOWED_HOSTS`) blocks DNS rebinding.
+- **CSRF guard** (`core/request_guard.py`): CORS only hides responses from other websites; it does not stop a browser from *sending*
+  simple requests (a body-less POST, a form, a multipart upload) to `127.0.0.1`. Every state-changing request (not GET/HEAD/OPTIONS)
+  and every WebSocket handshake must therefore carry an `Origin` that is in `cors_origins` or equal to the request's own host;
+  `Origin: null` is rejected. Requests without `Origin` (desktop launcher, curl, tests) are allowed unless `Sec-Fetch-Site` marks them
+  as cross-site. Rejected requests get `403` (WebSockets close with `1008`) and are logged.
+- Changing `HOST` to `0.0.0.0` requires adding the LAN names to `ALLOWED_HOSTS` and exposes a file-reading API — documented as unsafe by default.
 - API keys: `.env` (git-ignored) or typed in the UI for one run only; never persisted by the app. `.gitignore` also covers `*.exe`, `build/`, `dist/`, `storage/`, `data/` and `launcher.log`.
 - Sent to Gemini: subtitle text (and glossary), sampled frames when on-screen detection/speaker detection is used, nothing else. Audio and video stay local.
 - Housekeeping and cleanup only delete files inside `storage/` that the app created.
