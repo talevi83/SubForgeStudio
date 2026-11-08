@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import settings
+from app.core.request_guard import CrossSiteRequestGuard
 from app.core.database import init_db
 from app.core.housekeeping import cleanup_storage
 from app.core.ws_manager import ws_manager
@@ -46,6 +47,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# CSRF: CORS can't stop a website from *sending* simple POSTs / opening a WebSocket to
+# 127.0.0.1, so state-changing requests from untrusted origins are rejected here.
+# Added first = innermost, so CORS preflights and the Host check run before it.
+app.add_middleware(CrossSiteRequestGuard, allowed_origins=settings.cors_origins)
 
 # CORS: only allow the local frontend origins (Vite dev server + same-origin prod build).
 # A wildcard origin would let any website the user visits drive this API, which can read

@@ -168,7 +168,7 @@ SubsForge Studio/
 │   ├── .env.example            # Configuration template (copy to .env)
 │   ├── requirements.txt        # Python dependencies (incl. CUDA cuBLAS/cuDNN wheels)
 │   ├── app/
-│   │   ├── main.py             # FastAPI app: CORS, trusted hosts, routers, WebSocket, serves frontend/dist
+│   │   ├── main.py             # FastAPI app: CORS, trusted hosts, CSRF guard, routers, WebSocket, serves frontend/dist
 │   │   ├── api/                # Routes: system, media, jobs, export, settings, glossary profiles, storage
 │   │   ├── core/               # Config, SQLite DB, hardware detection, WS manager, model catalog & prices,
 │   │   │                       #   user settings, glossary profiles, job logging, housekeeping, storage cleanup, ollama_setup
@@ -294,6 +294,7 @@ Optional settings (defaults shown):
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Server address. Keep `127.0.0.1` unless you really want LAN access: the API can read any file path on this PC. |
 | `SYNC_DETECT_BURNED_IN` / `SYNC_BURNED_IN_FPS` | `true` / `5` | *Sync my subtitles*: look for subtitles burned into the picture (local), and how many frames per second to check. |
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
+| `CORS_ORIGINS` | `["http://localhost:5173", …:8000]` | Browser origins allowed to use the API. State-changing requests and WebSockets from any other website are rejected (CSRF guard); the studio's own page is always allowed. |
 
 An API key typed into the UI is used for that run only and is never written to disk.
 
