@@ -21,13 +21,13 @@ from app.pipeline.orchestrator import recover_interrupted_jobs
 from app.core.job_logging import setup_logging
 
 setup_logging()
-logger = logging.getLogger("subforge")
+logger = logging.getLogger("subbuild")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
-    logger.info("Initializing SubForge Studio Database...")
+    logger.info("Initializing SubBuild Studio Database...")
     init_db()
     recovered = recover_interrupted_jobs()
     if recovered:
@@ -36,13 +36,13 @@ async def lifespan(app: FastAPI):
         cleanup_storage()
     except Exception as e:  # never block startup on housekeeping
         logger.warning(f"Storage cleanup failed: {e}")
-    logger.info(f"SubForge Studio backend initialized. Gemini configured: {settings.is_gemini_configured}")
+    logger.info(f"SubBuild Studio backend initialized. Gemini configured: {settings.is_gemini_configured}")
     yield
-    logger.info("Shutting down SubForge Studio backend...")
+    logger.info("Shutting down SubBuild Studio backend...")
 
 
 app = FastAPI(
-    title="SubForge Studio API",
+    title="SubBuild Studio API",
     description="Professional local video subtitling, transcription & translation pipeline.",
     version="1.0.0",
     lifespan=lifespan,
@@ -106,7 +106,7 @@ class NoCacheIndexStaticFiles(StaticFiles):
 
 # If production frontend build exists, serve it; otherwise provide API root
 # The desktop launcher (packaged exe) points this at its bundled copy
-frontend_dist = Path(os.environ.get("SUBFORGE_FRONTEND_DIST")
+frontend_dist = Path(os.environ.get("SUBBUILD_FRONTEND_DIST")
                      or Path(__file__).resolve().parent.parent.parent / "frontend" / "dist")
 if frontend_dist.is_dir():
     app.mount("/", NoCacheIndexStaticFiles(directory=str(frontend_dist), html=True), name="static")
@@ -115,7 +115,7 @@ else:
     def root():
         return {
             "status": "online",
-            "app": "SubForge Studio API",
+            "app": "SubBuild Studio API",
             "gemini_configured": settings.is_gemini_configured,
         }
 

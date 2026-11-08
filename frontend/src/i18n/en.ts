@@ -676,7 +676,7 @@ export const en = {
     },
     help: {
       title: 'Help, User Guide & Q&A',
-      subtitle: 'How to operate SubForge Studio, optimize quality and costs, and solve common issues',
+      subtitle: 'How to operate SubBuild Studio, optimize quality and costs, and solve common issues',
       workflowTitle: 'Quick-Start Workflow (4 Steps)',
       step1Title: '1. Load Media',
       step1Text: 'Use "Direct Local Path" for files already on your PC (instant, zero copying) or upload a video file. Pick the desired audio stream.',
@@ -690,7 +690,7 @@ export const en = {
       q1: 'Which Whisper model should I choose, and when should I enable Comms Boost?',
       a1: 'For most movies and TV episodes, "medium" or "large-v3-turbo" gives broadcast-grade accuracy at high speed (~3x faster than large-v3). Enable "Tactical Comms & Radio Boost" on military, action, or sci-fi content where characters speak over walkie-talkies, radio static, or whispers.',
       q2: 'How does Cost-Saver Mode work, and what if I do not install Ollama?',
-      a2: 'When Cost-Saver Mode is on, SubForge Studio always filters out blank and duplicate video frames locally using Pillow (cutting Vision token costs by ~75–80%) and unloads Whisper from GPU VRAM right after transcription. If Ollama is installed and running, it also automatically pre-tags speaker/addressee gender locally; if Ollama is not installed, it silently skips that step without errors.',
+      a2: 'When Cost-Saver Mode is on, SubBuild Studio always filters out blank and duplicate video frames locally using Pillow (cutting Vision token costs by ~75–80%) and unloads Whisper from GPU VRAM right after transcription. If Ollama is installed and running, it also automatically pre-tags speaker/addressee gender locally; if Ollama is not installed, it silently skips that step without errors.',
       q3: 'How do I fix Hebrew gender ("you" / verbs) or keep character names consistent across episodes?',
       a3: 'Enter a "Series glossary" name (e.g. "The Last Ship") so character names, genders, and terms are shared across episodes. In the Studio table, you can also select specific rows, click "Re-translate with a note…", pick Speaker / Speaking-to gender (or click "Detect from video"), and re-translate just those lines.',
       q4: 'What is the difference between Gemini models, Thinking levels, and Flex mode?',

@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title SubForge Studio - Installer
+title SubBuild Studio - Installer
 
 echo ===================================================
-echo            SubForge Studio - Installer
+echo            SubBuild Studio - Installer
 echo ===================================================
 echo.
 
@@ -19,7 +19,7 @@ if %ERRORLEVEL% neq 0 (
 )
 where ffmpeg >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] FFmpeg not found on PATH. SubForge Studio needs FFmpeg and FFprobe to process media.
+    echo [WARNING] FFmpeg not found on PATH. SubBuild Studio needs FFmpeg and FFprobe to process media.
 )
 
 :: 2. Python virtual environment + backend & desktop dependencies

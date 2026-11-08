@@ -20,7 +20,7 @@ from typing import Iterator, Optional
 from app.core.config import settings
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-_current_job: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("subforge_job_id", default=None)
+_current_job: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("subbuild_job_id", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -83,14 +83,14 @@ def setup_logging(level: int = logging.INFO) -> None:
         console = logging.StreamHandler()
         console.setFormatter(formatter)
         root.addHandler(console)
-    if not any(getattr(h, "_subforge", False) for h in root.handlers):
+    if not any(getattr(h, "_subbuild", False) for h in root.handlers):
         server = logging.handlers.RotatingFileHandler(
             server_log_path(), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True)
         server.setFormatter(formatter)
-        server._subforge = True  # type: ignore[attr-defined]
+        server._subbuild = True  # type: ignore[attr-defined]
         jobs = JobLogHandler()
         jobs.setFormatter(formatter)
-        jobs._subforge = True  # type: ignore[attr-defined]
+        jobs._subbuild = True  # type: ignore[attr-defined]
         root.addHandler(server)
         root.addHandler(jobs)
 

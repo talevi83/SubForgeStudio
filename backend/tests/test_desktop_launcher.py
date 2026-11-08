@@ -12,7 +12,7 @@ LAUNCHER = Path(__file__).resolve().parents[2] / "packaging" / "launcher.py"
 
 @pytest.fixture()
 def launcher(monkeypatch):
-    spec = importlib.util.spec_from_file_location("subforge_launcher", LAUNCHER)
+    spec = importlib.util.spec_from_file_location("subbuild_launcher", LAUNCHER)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

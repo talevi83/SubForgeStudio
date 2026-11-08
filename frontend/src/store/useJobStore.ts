@@ -20,8 +20,9 @@ import type {
   EditHistory,
   HistoryRestoreResult,
 } from '../types';
+import { getItemWithLegacy } from '../utils/legacyStorage';
 
-const CONFIG_STORAGE_KEY = 'subforge.pipelineConfig';
+const CONFIG_STORAGE_KEY = 'subbuild.pipelineConfig';
 
 const DEFAULT_CONFIG: JobConfig = {
   selected_audio_stream: 0,
@@ -49,7 +50,7 @@ const DEFAULT_CONFIG: JobConfig = {
 /** Remembered pipeline settings (never the API key). Storage can be unavailable — fail soft. */
 function loadSavedConfig(): Partial<JobConfig> {
   try {
-    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    const raw = getItemWithLegacy(CONFIG_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     // Older versions stored the Gemini model here; it now lives in Settings
     delete parsed.gemini_model;
@@ -79,7 +80,7 @@ function saveConfig(config: JobConfig) {
 
 const savedConfig = loadSavedConfig();
 
-const SYNC_PREFS_KEY = 'subforge.syncPrefs';
+const SYNC_PREFS_KEY = 'subbuild.syncPrefs';
 
 interface SyncPrefs {
   ingestMode: IngestMode;
@@ -88,7 +89,7 @@ interface SyncPrefs {
 
 function loadSyncPrefs(): SyncPrefs {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SYNC_PREFS_KEY) || '{}');
+    const parsed = JSON.parse(getItemWithLegacy(SYNC_PREFS_KEY) || '{}');
     return {
       ingestMode: parsed.ingestMode === 'sync' ? 'sync' : 'transcribe',
       syncUseGemini: parsed.syncUseGemini !== false,

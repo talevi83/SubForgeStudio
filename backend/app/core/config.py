@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # Storage & Database
     storage_dir: Path = Path("./storage")
-    database_url: str = "sqlite:///./storage/subforge.db"
+    database_url: str = "sqlite:///./storage/subbuild.db"
     # Unreferenced browser uploads older than this are deleted on startup
     upload_retention_hours: float = 24.0
 

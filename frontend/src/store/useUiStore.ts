@@ -1,14 +1,15 @@
 import { create } from 'zustand';
+import { getItemWithLegacy } from '../utils/legacyStorage';
 
 export type Language = 'en' | 'he';
 export type Theme = 'dark' | 'light';
 export type View = 'studio' | 'settings' | 'help';
 
-const STORAGE_KEY = 'subforge.ui';
+const STORAGE_KEY = 'subbuild.ui';
 
 function load(): { language?: Language; theme?: Theme } {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    return JSON.parse(getItemWithLegacy(STORAGE_KEY) || '{}');
   } catch {
     return {};
   }

@@ -24,7 +24,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
-logger = logging.getLogger("subforge")
+logger = logging.getLogger("subbuild")
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Sec-Fetch-Site values that mean "not initiated by another website"

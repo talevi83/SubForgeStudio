@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "==================================================="
-echo "             SubForge Studio Launcher"
+echo "             SubBuild Studio Launcher"
 echo "==================================================="
 echo
 
@@ -83,7 +83,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Launch SubForge Studio
+# 4. Launch SubBuild Studio
 # -----------------------------------------------------------------------------
 # Set LD_LIBRARY_PATH on Linux if NVIDIA CUDA pip wheels are installed inside the venv
 if [[ "$OS" == "Linux" ]]; then
@@ -96,8 +96,8 @@ fi
 # Optional native desktop window mode (--window) if pywebview + pystray + Pillow are installed
 if [[ "${1:-}" == "--window" ]]; then
     if "$VENV_PY" -c "import webview, pystray, PIL" >/dev/null 2>&1; then
-        echo "[4/4] Starting SubForge Studio in its own window..."
-        export SUBFORGE_HOME="$SCRIPT_DIR/backend"
+        echo "[4/4] Starting SubBuild Studio in its own window..."
+        export SUBBUILD_HOME="$SCRIPT_DIR/backend"
         exec "$VENV_PY" "$SCRIPT_DIR/packaging/launcher.py"
     else
         echo "[WARNING] Desktop window packages (pywebview, pystray, Pillow) are not installed — opening in browser instead."
@@ -107,7 +107,7 @@ fi
 PORT="${PORT:-8000}"
 URL="http://localhost:$PORT"
 
-echo "[4/4] Starting SubForge Studio on $URL ..."
+echo "[4/4] Starting SubBuild Studio on $URL ..."
 echo
 echo "==================================================="
 echo "Server is running! Press Ctrl+C in this window to stop."

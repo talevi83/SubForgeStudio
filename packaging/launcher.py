@@ -1,5 +1,5 @@
 """
-SubForge Studio desktop launcher - the entry point of the packaged "SubForge Studio.exe".
+SubBuild Studio desktop launcher - the entry point of the packaged "SubBuild Studio.exe".
 
 Starts the FastAPI backend inside this process and shows the studio in its own desktop window
 (pywebview on Microsoft Edge WebView2, which ships with Windows 10/11), with an icon in the
@@ -9,9 +9,9 @@ instead, and the tray icon is the way back to it.
 User data (.env with the API key, storage/ with projects, settings and logs, the window's
 size and the studio's own preferences) is kept outside the program folder, so rebuilding or
 replacing the program never touches it:
-  1. %SUBFORGE_HOME%, if set
+  1. %SUBBUILD_HOME%, if set
   2. a "data" folder next to the .exe (portable mode - create the folder to opt in)
-  3. %LOCALAPPDATA%\\SubForge Studio
+  3. %LOCALAPPDATA%\\SubBuild Studio
 
 Also runs from source:  python packaging/launcher.py [--browser] [--no-tray] [--no-browser]
 """
@@ -34,7 +34,7 @@ import webbrowser
 from pathlib import Path
 from typing import Callable, Optional
 
-APP_NAME = "SubForge Studio"
+APP_NAME = "SubBuild Studio"
 FROZEN = getattr(sys, "frozen", False)
 WINDOWS = sys.platform == "win32"
 STARTUP_TIMEOUT = 180  # seconds; the first start preloads the CUDA libraries, which can be slow
@@ -54,7 +54,7 @@ body{display:flex;align-items:center;justify-content:center}
 .box{text-align:center}.spin{width:34px;height:34px;margin:0 auto 18px;border:3px solid #27272a;
 border-top-color:#6366f1;border-radius:50%;animation:s 0.9s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
 h1{font-size:18px;font-weight:600;margin:0 0 6px}p{font-size:12px;color:#a1a1aa;margin:2px 0}
-</style></head><body><div class="box"><div class="spin"></div><h1>SubForge Studio</h1>
+</style></head><body><div class="box"><div class="spin"></div><h1>SubBuild Studio</h1>
 <p>Starting the studio&hellip;</p><p dir="rtl">&#1502;&#1508;&#1506;&#1497;&#1500; &#1488;&#1514; &#1492;&#1505;&#1496;&#1493;&#1491;&#1497;&#1493;&hellip;</p>
 </div></body></html>"""
 
@@ -77,7 +77,7 @@ def program_dir() -> Path:
 
 
 def data_dir() -> Path:
-    env = os.environ.get("SUBFORGE_HOME")
+    env = os.environ.get("SUBBUILD_HOME") or os.environ.get("SUBFORGE_HOME")  # old name still honoured
     if env:
         return Path(env).expanduser().resolve()
     portable = program_dir() / "data"
@@ -89,7 +89,14 @@ def data_dir() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / APP_NAME
+    target = base / APP_NAME
+    legacy = base / "SubForge Studio"  # the app's name before the rebrand: keep users' data
+    if not target.exists() and legacy.is_dir():
+        try:
+            legacy.rename(target)
+        except OSError:
+            return legacy  # in use / locked: keep working from the old folder
+    return target
 
 
 # ----------------------------------------------------------------------------- process setup
@@ -134,7 +141,7 @@ def prepare_environment(home: Path) -> Path:
             shutil.copyfile(example, env_file)
     # The backend reads ./.env and keeps ./storage relative to the working directory
     os.chdir(home)
-    os.environ.setdefault("SUBFORGE_FRONTEND_DIST", str(resource("frontend", "dist")))
+    os.environ.setdefault("SUBBUILD_FRONTEND_DIST", str(resource("frontend", "dist")))
     ffmpeg_dir = resource("ffmpeg")
     if ffmpeg_dir.is_dir():  # bundled ffmpeg/ffprobe win over whatever is on PATH
         os.environ["PATH"] = str(ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
@@ -274,7 +281,7 @@ class ServerThread(threading.Thread):
 
 def failure_text(server: ServerThread, home: Path) -> str:
     detail = (server.error or "Startup timed out.").strip().splitlines()
-    return ("SubForge Studio could not start.\n\n" + "\n".join(detail[-6:]) +
+    return ("SubBuild Studio could not start.\n\n" + "\n".join(detail[-6:]) +
             f"\n\nLogs: {home / 'storage' / 'logs' / 'server.log'}\n{home / 'launcher.log'}")
 
 
@@ -309,7 +316,7 @@ def make_tray(url: str, home: Path, env_file: Path, open_label: str, on_open: Ca
         pystray.MenuItem("Restart server", on_restart),
         pystray.MenuItem("Quit", on_quit),
     ]
-    return pystray.Icon("SubForgeStudio", Image.open(resource("packaging", "icon.ico")),
+    return pystray.Icon("SubBuildStudio", Image.open(resource("packaging", "icon.ico")),
                         f"{APP_NAME} - starting...", pystray.Menu(*items))
 
 
@@ -331,7 +338,7 @@ def run_tray(server: ServerThread, url: str, home: Path, env_file: Path, open_br
         spawn_again(["--browser", "--no-browser"])
         icon.stop()
 
-    icon = make_tray(url, home, env_file, "Open SubForge Studio", lambda: webbrowser.open(url),
+    icon = make_tray(url, home, env_file, "Open SubBuild Studio", lambda: webbrowser.open(url),
                      quit_app, restart, with_browser_item=False)
 
     def setup(icon) -> None:  # type: ignore[no-untyped-def]
@@ -491,7 +498,7 @@ def run_window(server: ServerThread, url: str, home: Path, env_file: Path) -> No
         _save_window_size(home, window)
         window.destroy()
 
-    icon = make_tray(url, home, env_file, "Open SubForge Studio", show_window,
+    icon = make_tray(url, home, env_file, "Open SubBuild Studio", show_window,
                      lambda: leave(False), lambda: leave(True), with_browser_item=True)
 
     def on_closing() -> bool:
@@ -554,7 +561,7 @@ def main() -> int:
     parser.add_argument("--no-tray", action="store_true", help="run in the foreground without a tray icon or window")
     parser.add_argument("--no-browser", action="store_true", help="browser mode: do not open the browser at start")
     args, _ = parser.parse_known_args()
-    use_browser = args.browser or os.environ.get("SUBFORGE_UI", "").lower() == "browser"
+    use_browser = args.browser or (os.environ.get("SUBBUILD_UI") or os.environ.get("SUBFORGE_UI") or "").lower() == "browser"
 
     home = data_dir()
     home.mkdir(parents=True, exist_ok=True)

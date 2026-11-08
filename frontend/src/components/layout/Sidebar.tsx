@@ -122,7 +122,7 @@ export const Sidebar: React.FC = () => {
         </div>
         <div>
           <h1 className="font-bold text-base tracking-tight text-zinc-50 flex items-center gap-1.5" dir="ltr">
-            SubForge
+            SubBuild
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 font-semibold tracking-wider uppercase border border-indigo-500/30">
               Studio
             </span>

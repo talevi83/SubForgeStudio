@@ -81,7 +81,7 @@ def download_server_log():
         if path.exists():
             parts.append(path.read_text(encoding="utf-8", errors="replace"))
     content = "".join(parts) or "(The server log is empty.)\n"
-    name = f"subforge-server-{datetime.now():%Y%m%d-%H%M}.log"
+    name = f"subbuild-server-{datetime.now():%Y%m%d-%H%M}.log"
     return Response(
         content=content.encode("utf-8"),
         media_type="text/plain; charset=utf-8",

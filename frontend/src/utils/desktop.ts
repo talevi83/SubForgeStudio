@@ -1,5 +1,5 @@
 /**
- * The desktop app (SubForge Studio.exe) shows the studio in its own window and offers a few
+ * The desktop app (SubBuild Studio.exe) shows the studio in its own window and offers a few
  * calls through pywebview's bridge. In a normal browser this is all absent.
  */
 interface DesktopApi {

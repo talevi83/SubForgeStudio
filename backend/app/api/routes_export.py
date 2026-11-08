@@ -116,7 +116,7 @@ def save_next_to_video(job_id: str, req: SaveNextToVideoRequest, session: Sessio
         return SaveNextToVideoResponse(saved=False, path=str(target), exists=True)
 
     data = _render(job, req.use_translated, req.apply_rtl, None, req.format)
-    tmp = target.with_name(f".{target.name}.subforge-tmp")
+    tmp = target.with_name(f".{target.name}.subbuild-tmp")
     try:
         tmp.write_bytes(data)
         os.replace(tmp, target)  # a half-written file never replaces a good one
@@ -134,7 +134,7 @@ def _job_log_header(job: Job) -> str:
     from app.core.user_settings import load_settings
 
     lines = [
-        "SubForge Studio - job log",
+        "SubBuild Studio - job log",
         f"Generated: {datetime.now().astimezone().isoformat(timespec='seconds')}",
         "",
         f"Job:        {job.id}",

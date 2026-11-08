@@ -30,7 +30,7 @@ def _insert_job(status: JobStatus, **kwargs) -> str:
 
 
 def test_tests_use_isolated_database():
-    assert "subforge_test_" in settings.database_url
+    assert "subbuild_test_" in settings.database_url
 
 
 @pytest.mark.parametrize(
