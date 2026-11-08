@@ -113,7 +113,8 @@ async def test_audio_stage_respects_use_embedded_subtitles_toggle(monkeypatch, t
     assert len(extracted_audio_called) == 0
     assert len(ctx_embedded.embedded_dialogue_segments) == 9
     assert ctx_embedded.detected_language == "es"
-    assert ctx_embedded.effective_source_language == "spa"
+    # The track's ISO 639-2 tag ("spa") is normalised to the 2-letter code used everywhere else
+    assert ctx_embedded.effective_source_language == "es"
 
 
 def test_clean_embedded_dialogue_text():

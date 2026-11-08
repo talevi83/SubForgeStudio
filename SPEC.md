@@ -53,7 +53,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
 | Lint / build | **oxlint**, `tsc -b` + `vite build` | Frontend must pass both with zero warnings |
 | Desktop shell | **pywebview** (Edge WebView2), **pystray + Pillow** (tray icon) | Own app window and tray menu (`packaging/launcher.py`) |
 | Packaging | **PyInstaller** one-folder (`packaging/subforge.spec`, `build_exe.bat`) | Self-contained `SubForge Studio.exe` with Python, libraries, frontend, ffmpeg and CUDA libs |
-| Tests | **pytest, pytest-asyncio, httpx** | ~260 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
+| Tests | **pytest, pytest-asyncio, httpx** | ~380 backend tests; fake Whisper/Gemini plus real-ffmpeg end-to-end runs |
 
 ---
 
@@ -253,14 +253,15 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
   `Origin: null` is rejected. Requests without `Origin` (desktop launcher, curl, tests) are allowed unless `Sec-Fetch-Site` marks them
   as cross-site. Rejected requests get `403` (WebSockets close with `1008`) and are logged.
 - Changing `HOST` to `0.0.0.0` requires adding the LAN names to `ALLOWED_HOSTS` and exposes a file-reading API — documented as unsafe by default.
-- API keys: `.env` (git-ignored) or typed in the UI for one run only; never persisted by the app. `.gitignore` also covers `*.exe`, `build/`, `dist/`, `storage/`, `data/` and `launcher.log`.
+- API keys: a key saved in Settings (or the first-run dialog) is written to `.env` (git-ignored) via `PUT /api/settings/api-key`;
+  a key typed in the Ingest screen is used in memory for that run only and never written to disk. `.gitignore` also covers `*.exe`, `build/`, `dist/`, `storage/`, `data/` and `launcher.log`.
 - Sent to Gemini: subtitle text (and glossary), sampled frames when on-screen detection/speaker detection is used, nothing else. Audio and video stay local.
 - Housekeeping and cleanup only delete files inside `storage/` that the app created.
 
 ---
 
 ## 10. Testing and quality gates
-- Backend: `pytest` in `backend/tests` (~320+ tests). Whisper and Gemini are replaced by fakes; ffmpeg-based tests run end to end on generated clips (forced track, frame scan, whole pipeline, sync with synthetic delays/frame-rate/cuts). Areas: RTL fixer, SRT formatter, refine quality, speaker split & SDH cleanup, smart end-credits detection & post-credits scene preservation (`credits_detect`), embedded subtitle extraction, missing-speech Whisper supplement, FinOps local pre-filtering & Ollama pre-tagging, Whisper provider (cancel, fallback), Gemini provider (retries, flags, separate onscreen pass), settings/pricing/Flex, foreign speech, gap recovery, word snap, retime, row translate, glossary profiles, storage cleanup, sync, insert line, desktop launcher.
+- Backend: `pytest` in `backend/tests` (~380 tests). Whisper and Gemini are replaced by fakes; ffmpeg-based tests run end to end on generated clips (forced track, frame scan, whole pipeline, sync with synthetic delays/frame-rate/cuts). Areas: RTL fixer, SRT formatter, refine quality, speaker split & SDH cleanup, smart end-credits detection & post-credits scene preservation (`credits_detect`), embedded subtitle extraction, missing-speech Whisper supplement, FinOps local pre-filtering & Ollama pre-tagging, Whisper provider (cancel, fallback), Gemini provider (retries, flags, separate onscreen pass), settings/pricing/Flex, foreign speech, gap recovery, word snap, retime, row translate, glossary profiles, storage cleanup, sync, insert line, desktop launcher.
 - Frontend: `npx tsc -b`, `npx oxlint src` (0 warnings) and `npm run build` must pass; UI flows are checked in a headless browser in both English and Hebrew.
 - Windows-only behavior (tray, WebView2 window, CUDA loading) is verified manually on a Windows PC; the launcher's pure logic is unit-tested.
 

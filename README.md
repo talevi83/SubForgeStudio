@@ -296,7 +296,7 @@ Optional settings (defaults shown):
 | `ALLOWED_HOSTS` | `["localhost","127.0.0.1","[::1]"]` | Host names the server answers to (blocks DNS-rebinding attacks). Add your PC's LAN name/IP if you set `HOST=0.0.0.0`. |
 | `CORS_ORIGINS` | `["http://localhost:5173", …:8000]` | Browser origins allowed to use the API. State-changing requests and WebSockets from any other website are rejected (CSRF guard); the studio's own page is always allowed. |
 
-An API key typed into the UI is used for that run only and is never written to disk.
+An API key saved in Settings (or the first-run dialog) is stored in `.env`. A key typed on the Ingest screen for a single job is used for that run only and is never written to disk.
 
 ### 3. Frontend Setup
 ```bash
