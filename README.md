@@ -1,3 +1,7 @@
+<img width="2550" height="1383" alt="image" src="https://github.com/user-attachments/assets/ed3be926-2ee2-4278-90ee-1c5395ae51a8" />
+
+
+
 
 # SubForge Studio 🎬
 
