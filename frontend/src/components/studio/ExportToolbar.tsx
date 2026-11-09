@@ -6,7 +6,8 @@ import type { OnscreenPosition } from '../../types';
 import { TARGET_LANGUAGES } from '../ingest/languages';
 import { useT } from '../../i18n';
 import { GlossaryDialog } from './GlossaryDialog';
-import { AlertTriangle, Download, FileText, FolderDown, Languages, LayoutTemplate, Loader2, RotateCw, ScrollText, Users } from 'lucide-react';
+import { EmbedVideoDialog } from './EmbedVideoDialog';
+import { AlertTriangle, Download, Film, FileText, FolderDown, Languages, LayoutTemplate, Loader2, RotateCw, ScrollText, Users } from 'lucide-react';
 
 export const ExportToolbar: React.FC = () => {
   const activeJob = useJobStore((s) => s.activeJob);
@@ -22,6 +23,7 @@ export const ExportToolbar: React.FC = () => {
   const setSelectedSegmentIndex = useJobStore((s) => s.setSelectedSegmentIndex);
   const [targetLanguage, setTargetLanguage] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [embedOpen, setEmbedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveNote, setSaveNote] = useState<{ ok: boolean; text: string } | null>(null);
   const t = useT();
@@ -164,6 +166,17 @@ export const ExportToolbar: React.FC = () => {
         />
       )}
 
+      {embedOpen && (
+        <EmbedVideoDialog
+          jobId={activeJob.id}
+          isUpload={!!activeJob.is_upload}
+          hasTranslation={hasTranslation}
+          applyRtl={applyRtlExport}
+          onClose={() => setEmbedOpen(false)}
+          onDownload={downloadFile}
+        />
+      )}
+
       {/* Export */}
       <div className="flex items-center gap-2 flex-wrap">
         {untranslatedCount > 0 && (
@@ -228,6 +241,16 @@ export const ExportToolbar: React.FC = () => {
             {t('toolbar.saveNextToVideo')}
           </button>
         )}
+        <button
+          onClick={() => setEmbedOpen(true)}
+          disabled={!hasSegments || busy}
+          title={t('embed.buttonTitle')}
+          data-testid="open-embed"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 border border-zinc-700/60 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
+        >
+          <Film className="w-3.5 h-3.5 text-indigo-300" />
+          {t('embed.button')}
+        </button>
         {saveNote && (
           <span
             role="status"

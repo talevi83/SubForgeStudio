@@ -328,6 +328,38 @@ class SaveNextToVideoResponse(BaseModel):
     exists: bool
 
 
+class EmbedVideoRequest(BaseModel):
+    """Make a copy of the job's video with its subtitles inside (a track, or burned into the picture)."""
+    # soft: extra subtitle track, no re-encode (MKV/MP4). burn: drawn on the picture, H.264 MP4
+    mode: Literal["soft", "burn"] = "soft"
+    use_translated: bool = True
+    apply_rtl: bool = True
+    # soft: make the new track the one players show by default
+    set_default: bool = True
+    # burn: text size and encode quality (standard = fast)
+    font_size: Literal["small", "medium", "large"] = "medium"
+    quality: Literal["standard", "high"] = "standard"
+    # A video with the same name already next to the original is only replaced when this is true
+    overwrite: bool = False
+
+
+class EmbedVideoStatus(BaseModel):
+    task_id: Optional[str] = None
+    # exists: nothing started because the output file is already there (overwrite=false)
+    state: Literal["running", "done", "error", "cancelled", "exists"]
+    mode: Literal["soft", "burn"]
+    percent: float = 0.0
+    # Full path next to the video, or just the file name when it is offered as a download
+    path: str
+    file_name: str
+    # True: written next to the original video. False: kept in app storage, fetch via download_url
+    next_to_video: bool
+    download_url: Optional[str] = None
+    error: Optional[str] = None
+    # copy | h264_nvenc | libx264
+    encoder: Optional[str] = None
+
+
 class HistoryEntrySchema(BaseModel):
     id: int
     # original | edit | edit_timing | bulk_edit | insert | delete | delete_many | move | retime | translate | external

@@ -477,6 +477,38 @@ export interface JobUsage {
 }
 
 /** POST /api/jobs/{id}/export/save-next-to-video */
+export type EmbedMode = 'soft' | 'burn';
+export type EmbedFontSize = 'small' | 'medium' | 'large';
+export type EmbedQuality = 'standard' | 'high';
+
+export interface EmbedVideoOptions {
+  /** soft: extra subtitle track (no re-encode). burn: drawn on the picture, H.264 MP4 */
+  mode: EmbedMode;
+  use_translated?: boolean;
+  apply_rtl?: boolean;
+  set_default?: boolean;
+  font_size?: EmbedFontSize;
+  quality?: EmbedQuality;
+  overwrite?: boolean;
+}
+
+export interface EmbedVideoStatus {
+  task_id: string | null;
+  /** exists: nothing started, the output file is already there (send overwrite to replace it) */
+  state: 'running' | 'done' | 'error' | 'cancelled' | 'exists';
+  mode: EmbedMode;
+  percent: number;
+  /** Full path next to the video, or just the file name for an uploaded video's copy */
+  path: string;
+  file_name: string;
+  next_to_video: boolean;
+  /** Set when an uploaded video's copy is ready to download */
+  download_url: string | null;
+  error: string | null;
+  /** copy | h264_nvenc | libx264 */
+  encoder: string | null;
+}
+
 export interface SaveNextToVideoResult {
   saved: boolean;
   path: string;

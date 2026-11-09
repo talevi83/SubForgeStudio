@@ -52,5 +52,22 @@ def language_name(language: Optional[str], default: str = "the source language")
     return default
 
 
+# ISO 639-2 (3-letter) code per 2-letter code, for container track tags (MKV/MP4 want "heb", not "he")
+_CODE_TO_CODE3: dict = {}
+for _name, _code in _NAME_TO_CODE.items():
+    if len(_name) == 3 and _name.isascii():
+        _CODE_TO_CODE3.setdefault(_code, _name)
+
+
+def language_code3(language: Optional[str]) -> Optional[str]:
+    """ISO 639-2 code for a language name or code ("Hebrew" -> "heb"); None for unknown/auto."""
+    code = language_code(language)
+    if not code:
+        return None
+    if len(code) == 3:
+        return code
+    return _CODE_TO_CODE3.get(code)
+
+
 def is_rtl(language: Optional[str]) -> bool:
     return language_code(language) in RTL_CODES
