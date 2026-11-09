@@ -14,7 +14,7 @@ import { api } from '../../services/api';
 import { StorageSection } from './StorageSection';
 import { ApiKeySection } from './ApiKeySection';
 import {
-  ArrowLeft, Brain, Coins, Languages, Moon, Palette, Sun, Save, Loader2, Check, ExternalLink, PlugZap, CheckCircle2, XCircle,
+  ArrowLeft, Brain, Bug, Coins, Languages, Lightbulb, Moon, Palette, Sun, Save, Loader2, Check, ExternalLink, PlugZap, CheckCircle2, XCircle,
   Hourglass, ScrollText, Stethoscope, Download, Cpu, Terminal,
 } from 'lucide-react';
 
@@ -921,6 +921,32 @@ export const SettingsScreen: React.FC = () => {
           {t('settings.serverLog')}
         </a>
       </section>
+
+      {/* Feedback & GitHub Issues */}
+      <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+        <a
+          href="https://github.com/talevi83/SubBuildStudio/issues/new?template=bug_report.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="settings-report-bug"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-line hover:border-rose-500/40 hover:bg-rose-500/10 text-xs font-medium text-zinc-300 hover:text-rose-300 transition-colors shadow-sm"
+        >
+          <Bug className="w-3.5 h-3.5 text-rose-400" />
+          <span>{t('settings.reportBug')}</span>
+          <ExternalLink className="w-3 h-3 opacity-60" />
+        </a>
+        <a
+          href="https://github.com/talevi83/SubBuildStudio/issues/new?template=feature_request.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="settings-request-feature"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-line hover:border-indigo-500/40 hover:bg-indigo-500/10 text-xs font-medium text-zinc-300 hover:text-indigo-300 transition-colors shadow-sm"
+        >
+          <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+          <span>{t('settings.requestFeature')}</span>
+          <ExternalLink className="w-3 h-3 opacity-60" />
+        </a>
+      </div>
     </div>
   );
 };

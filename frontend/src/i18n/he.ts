@@ -618,6 +618,8 @@ export const he: Messages = {
     storageRefresh: 'רענן',
     diagnosticsHint: 'לוגים לאיתור תקלות. לכל פרויקט יש גם לוג מפורט משלו (כפתור "לוג" בסטודיו).',
     serverLog: 'הורד את לוג השרת',
+    reportBug: 'דווח על באג',
+    requestFeature: 'בקש פיצ׳ר חדש',
     preview: 'תצוגה מקדימה',
     estimate: 'הערכת עלות',
     estimateHint: 'לפרק טיפוסי. מחושב לפי הבחירות למעלה, גם לפני שמירה.',

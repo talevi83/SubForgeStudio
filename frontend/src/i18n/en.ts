@@ -619,6 +619,8 @@ export const en = {
     diagnosticsHint:
       'Logs for troubleshooting. Each project also has its own detailed log (the Log button in the studio).',
     serverLog: 'Download server log',
+    reportBug: 'Report a bug',
+    requestFeature: 'Request a feature',
     estimate: 'Cost estimate',
     estimateHint: 'For a typical episode. Uses the choices above, even before you save.',
     episodeLength: 'Video length (minutes)',
