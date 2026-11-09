@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"SubBuild Studio backend initialized. Gemini configured: {settings.is_gemini_configured}")
     yield
     logger.info("Shutting down SubBuild Studio backend...")
+    from app.core.video_embed import shutdown_embeds
+    await shutdown_embeds()
 
 
 app = FastAPI(

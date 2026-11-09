@@ -1,4 +1,4 @@
-import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, SaveNextToVideoResult, EditHistory, HistoryRestoreResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
+import type { ParsedSubtitles, SegmentCreate, SyncCue, SystemInfo, ProbeResponse, Job, JobConfig, SubtitleSegment, SegmentPatch, SegmentsChange, QAIssue, SpeakerGuess, StorageReport, StorageCleanResult, SaveNextToVideoResult, EmbedVideoOptions, EmbedVideoStatus, EditHistory, HistoryRestoreResult, Glossary, RetranslateOptions, AppSettings, SettingsResponse, CostEstimate, ModelCheckResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -279,6 +279,28 @@ export const api = {
       json('POST', options),
       'Could not save the subtitles next to the video'
     );
+  },
+
+  /** Start making a copy of the video with the subtitles inside (poll getEmbedVideoStatus for progress). */
+  startEmbedVideo(jobId: string, options: EmbedVideoOptions): Promise<EmbedVideoStatus> {
+    return request(
+      `${API_BASE}/jobs/${jobId}/export/embed`,
+      json('POST', options),
+      'Could not start making the video with subtitles'
+    );
+  },
+
+  /** The project's most recent embed run (null when there was none since the app started). */
+  getLatestEmbedVideo(jobId: string): Promise<EmbedVideoStatus | null> {
+    return request(`${API_BASE}/jobs/${jobId}/export/embed`);
+  },
+
+  getEmbedVideoStatus(jobId: string, taskId: string): Promise<EmbedVideoStatus> {
+    return request(`${API_BASE}/jobs/${jobId}/export/embed/${taskId}`, undefined, 'Lost track of the video being made');
+  },
+
+  cancelEmbedVideo(jobId: string, taskId: string): Promise<EmbedVideoStatus> {
+    return request(`${API_BASE}/jobs/${jobId}/export/embed/${taskId}/cancel`, { method: 'POST' }, 'Could not stop it');
   },
 
   /** Detailed log of everything that happened while the job ran (summary + log lines). */
