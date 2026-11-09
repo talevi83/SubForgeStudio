@@ -1,4 +1,4 @@
-"""Draws packaging/icon.ico (exe + tray icon): a film frame with two subtitle lines.
+"""Draws packaging icons (icon.ico, icon.png, icon.icns): a film frame with two subtitle lines.
 
 Run once after changing the design:  python packaging/make_icon.py   (needs Pillow)
 """
@@ -6,7 +6,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-OUT = Path(__file__).resolve().parent / "icon.ico"
+PKG_DIR = Path(__file__).resolve().parent
+OUT_ICO = PKG_DIR / "icon.ico"
+OUT_PNG = PKG_DIR / "icon.png"
+OUT_ICNS = PKG_DIR / "icon.icns"
 SIZE = 1024
 TOP, BOTTOM = (99, 102, 241), (67, 56, 202)    # indigo-500 -> indigo-700, the studio accent
 
@@ -43,5 +46,13 @@ def draw() -> Image.Image:
 
 
 if __name__ == "__main__":
-    draw().save(OUT, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    print(f"wrote {OUT}")
+    img = draw()
+    img.save(OUT_ICO, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print(f"wrote {OUT_ICO}")
+    img.save(OUT_PNG, format="PNG")
+    print(f"wrote {OUT_PNG}")
+    try:
+        img.save(OUT_ICNS, format="ICNS")
+        print(f"wrote {OUT_ICNS}")
+    except Exception as exc:
+        print(f"could not write ICNS: {exc}")
