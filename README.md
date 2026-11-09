@@ -252,12 +252,11 @@ cp .env.example .env
 Edit `backend/.env` to configure your Google Gemini API key:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3.8-flash
 WHISPER_DEFAULT_MODEL=medium
 WHISPER_DEVICE=auto
 ```
 
-`GEMINI_MODEL` / `GEMINI_VISION_MODEL` are only the first-run defaults: after that, models and thinking levels are chosen in **Settings** (saved to `storage/settings.json`).
+AI models and thinking levels (Translation, Glossary, and Vision) are configured in the app's **Settings** screen (saved to `storage/settings.json`).
 
 Optional settings (defaults shown):
 
