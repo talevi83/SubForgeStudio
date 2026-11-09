@@ -15,8 +15,9 @@
 4. **Re-times a subtitle file the user already has** against the video's speech and on-screen text — an alternative to 1–3.
 5. Offers an **editing studio** (synced player, inline edit, add/move/re-time lines, quality checks) and **SRT/VTT export**.
 
-It runs three ways from the same code: as a **local web app** (browser), as a **desktop window** from source (`run.bat` / `run.sh`), and
-as a **standalone Windows program** (`SubBuild Studio.exe`, PyInstaller). Nothing leaves the machine except the text
+It runs three ways from the same code: as a **desktop window** from source (`run.bat` / `./run.sh --window`),
+as a **standalone Windows program** (`SubBuild Studio.exe`, PyInstaller), and as a **local web app** (browser fallback).
+**Recommended usage is the desktop window** (rather than a regular browser) so that dragged-and-dropped or browsed files resolve directly to their local disk path without uploading or copying to temp. Nothing leaves the machine except the text
 and frames explicitly sent to Gemini; the video itself is never uploaded anywhere.
 
 ### Core engineering rules
@@ -26,8 +27,7 @@ and frames explicitly sent to Gemini; the video itself is never uploaded anywher
    interfaces (`BaseTranscriber`, `BaseTranslator`) so engines can be swapped or faked in tests.
 3. **Never block the event loop.** `ffmpeg`, Whisper and Gemini calls run in subprocesses or worker threads
    (`asyncio.to_thread`); progress reaches the browser over a WebSocket.
-4. **Zero-copy local files.** Videos are 1–20 GB: the user can point at a path on disk (nothing is copied), or upload through the
-   browser (copy kept in `storage/uploads`, owned by the app and deleted with its project).
+4. **Zero-copy local files.** Videos are 1–20 GB: the unified `MediaDropzone` lets the user drag & drop a video, browse via the native file dialog, or paste a path on disk. In the desktop window, dragged and browsed files resolve directly to their local path (nothing is copied, and *Save next to video* remains available); only when running inside an external browser (where browser sandboxing hides disk paths) does drag-and-drop fall back to uploading a copy into `storage/uploads` (owned by the app and deleted with its project).
 5. **Official Gemini SDK (`google-genai`) and typed configuration.** Defaults come from `backend/.env` via `pydantic-settings`;
    the Settings screen overrides them in `storage/settings.json` (and can persist `GEMINI_API_KEY` to `.env` via `PUT /api/settings/api-key`). Per-job API key overrides typed in the Ingest screen are used in memory for that run only.
 6. **Safe by default for a local server.** The API can read any path on the PC, so it binds to `127.0.0.1`, uses an explicit
@@ -247,7 +247,10 @@ Interactive documentation: `http://localhost:8000/docs`. Summary:
 - **i18n:** `i18n/en.ts` + `i18n/he.ts`; message keys are typed, so a missing translation fails the TypeScript build. Hebrew switches the whole layout to RTL (`dir`), with explicit `dir` only around genuinely left-to-right fragments.
 - **Player:** HTML5 video with Range seeking and a dynamic WebVTT blob track, so edits show on the video immediately. Shortcuts: `Space`, `←/→` (±2 s, `Shift` ±0.1 s), `[` `]` (set start/end to playhead), `N` (add line), `F` (fullscreen).
 - **Dev/prod:** `npm run dev` on `:5173` proxies `/api` and `/ws` to `:8000`; `npm run build` produces `frontend/dist`, which FastAPI serves on the same origin.
-- **Desktop bridge:** `utils/desktop.ts` talks to `window.pywebview.api` when present (fullscreen of the whole window; `read_clipboard` for the path field's right-click *Paste* menu, since WebView2 may refuse the page's clipboard permission — browsers fall back to `navigator.clipboard`).
+- **Desktop bridge:** `utils/desktop.ts` talks to `window.pywebview.api` when present:
+  - `resolveDroppedFilePath` passes dropped `FileList` objects through WebView2's `chrome.webview.postMessageWithAdditionalObjects('FilesDropped', files)` and queries `window.pywebview.api.resolve_dropped_file(filename)` (`webview.dom._dnd_state`) to obtain the exact local disk path (`CoreWebView2File.Path` on Windows, `NSURL` on macOS, `QUrl` on Linux) without copying or uploading to temp; falls back to browser upload only in an external browser.
+  - `pickLocalMediaFile` calls `window.pywebview.api.pick_media_file()` (`window.create_file_dialog`) to open the native OS file picker and return the local path directly.
+  - `set_fullscreen` toggles fullscreen of the whole desktop window; `read_clipboard` backs the path field's right-click *Paste* menu (since WebView2 may refuse the page's clipboard permission — browsers fall back to `navigator.clipboard`).
 
 ---
 

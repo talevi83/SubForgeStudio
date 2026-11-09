@@ -11,14 +11,15 @@
 
 ## 🌟 Key Features
 
-1. **Zero-Copy Local Ingest, Stream Discovery & Embedded Subtitle Extraction:**
-   - Ingest multi-gigabyte files (MKV, MP4, AVI, WebM) directly from disk paths without duplicating files.
+1. **Unified Zero-Copy Local Ingest, Stream Discovery & Embedded Subtitle Extraction:**
+   - **Unified Ingest Dropzone & Path Input:** Drag & drop a video file directly onto the studio, click to browse, or paste a local path in one unified view.
+   - **Recommended — Use the Desktop App Window (`SubBuild Studio.exe` / `run.bat`):** In the desktop window (Edge WebView2 / `pywebview`), dragging & dropping a video or clicking to browse resolves the file's **direct local path** on disk (`CoreWebView2File.Path` / native file dialog) without uploading or copying a single byte to temp, and preserves the video's folder for **Save next to video**.
    - Right-click the path field for a one-item **Paste** menu (also works in the desktop window, where it reads the clipboard through the app).
    - Discovers all video, audio, and embedded subtitle tracks via `ffprobe` and lets you select the exact audio or text-based dialogue subtitle stream to use.
    - **Use Embedded Subtitles Toggle (`use_embedded_subtitles`):** When the video has an embedded text-based dialogue track (e.g., SRT/ASS/WebVTT inside an MKV), SubBuild extracts it directly for instant, studio-accurate timing without waiting for full Whisper transcription — or you can switch it off to force fresh Whisper transcription from the audio.
    - **Supplement with Whisper (`supplement_with_whisper`):** Optionally run Whisper alongside embedded or synced subtitles (`pipeline/missing_speech.py`) to detect and recover spoken lines missing from the subtitle track (such as unsubtitled radio chatter, background remarks, or foreign phrases) without duplicating existing lines.
    - **Smart Genre Presets (`GenrePresets`):** One-click preset selector at the top of the configuration panel (`🎬 Drama & Cinema`, `🔬 Documentary, Reality & Science`, `🚁 Action, Military & Tactical`, `🕵️ Thriller, Horror & Crime`, `🚀 Sci-Fi, Fantasy & Anime`, `⚡ Fast & Clean / Sitcom`) that automatically configures all Whisper, audio sensitivity, OCR, and translation settings for that genre, with live active-preset detection and a `Custom` badge when tweaked manually.
-   - Browser uploads show progress, are de-duplicated (same name + size is reused), and are deleted together with their project.
+   - **Browser fallback:** If opened in a regular external browser (`--browser`), where web security blocks local path resolution, dropped files automatically fall back to upload with progress reporting, de-duplication (same name + size is reused), and automatic cleanup when the project is deleted.
 
 2. **Hardware-Accelerated Transcription & High Speech Sensitivity:**
    - Powered by `faster-whisper` (CTranslate2) with automatic hardware detection (`CUDA FP16` on NVIDIA GPUs or `CPU INT8`).
@@ -306,7 +307,9 @@ npm run build
 
 ## 🏃 Running the Application
 
-### Option A1: One-click (Windows)
+> 💡 **Recommendation for Best Experience:** Always prefer running SubBuild Studio in its **native desktop window** (`SubBuild Studio.exe`, `run.bat`, or `./run.sh --window`) rather than a regular web browser. In the desktop window, dragging & dropping a video or clicking to browse reads the file's **direct local path** in place (0 seconds wait, 0 GB copied to temp/uploads, and full support for *Save next to video*), clipboard paste works without browser permission prompts, and video fullscreen controls the window directly.
+
+### Option A1: One-click (Windows — Recommended)
 Run `install.bat` (optional first-time setup) or simply double-click `run.bat`. It creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the old behavior: a console server and the studio in your browser.
 
 ### Option A2: One-click (Linux & macOS)

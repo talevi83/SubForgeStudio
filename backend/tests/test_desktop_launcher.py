@@ -226,3 +226,46 @@ def test_show_route_answers_before_the_static_frontend(launcher):
 def test_window_problem_without_pywebview(launcher, monkeypatch):
     monkeypatch.setitem(sys.modules, "webview", None)  # import fails
     assert "pywebview" in launcher.window_problem()
+
+
+def test_resolve_dropped_file_returns_local_path_without_upload(launcher, monkeypatch, tmp_path):
+    fake_dom = types.ModuleType("webview.dom")
+    fake_dom._dnd_state = {"num_listeners": 0, "paths": []}
+    fake_webview = types.ModuleType("webview")
+    fake_webview.dom = fake_dom
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+    monkeypatch.setitem(sys.modules, "webview.dom", fake_dom)
+
+    video = tmp_path / "Episode 01 [1080p].mkv"
+    video.write_bytes(b"fake-video")
+
+    api = launcher.DesktopApi()
+    assert fake_dom._dnd_state["num_listeners"] >= 1
+
+    # Simulate WebView2 / pywebview populating _dnd_state["paths"] on drop
+    fake_dom._dnd_state["paths"].append((video.name, str(video)))
+    resolved = api.resolve_dropped_file(video.name)
+    assert resolved == str(video)
+    assert fake_dom._dnd_state["paths"] == []
+
+    # When nothing was dropped, returns None so browser mode can fall back
+    assert api.resolve_dropped_file("missing.mkv") is None
+
+
+def test_pick_media_file_uses_native_dialog(launcher, monkeypatch):
+    fake_webview = types.ModuleType("webview")
+    fake_webview.OPEN_DIALOG = 10
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+
+    api = launcher.DesktopApi()
+    assert api.pick_media_file() is None  # no window attached
+
+    window = FakeWindow()
+    window.create_file_dialog = lambda *a, **kw: ("C:\\Movies\\Inception.mkv",)
+    api._window = window
+    assert api.pick_media_file() == "C:\\Movies\\Inception.mkv"
+
+    # Cancelled dialog returns empty string (not None) so the UI does not open a second dialog
+    window.create_file_dialog = lambda *a, **kw: None
+    assert api.pick_media_file() == ""
+

@@ -423,12 +423,30 @@ def read_clipboard_text() -> Optional[str]:
         user32.CloseClipboard()
 
 
+MEDIA_FILE_TYPES = (
+    "Media files (*.mkv;*.mp4;*.webm;*.avi;*.mov;*.m4v;*.ts;*.mpg;*.mpeg;*.wmv;*.flv;*.mp3;*.wav;*.m4a;*.flac;*.ogg;*.aac)",
+    "All files (*.*)",
+)
+
+
+def _enable_webview_dnd() -> None:
+    """Tell pywebview's platform backends (WebView2, Cocoa, Qt) to record dropped file paths."""
+    try:
+        from webview.dom import _dnd_state
+
+        if _dnd_state.get("num_listeners", 0) < 1:
+            _dnd_state["num_listeners"] = 1
+    except Exception:
+        pass
+
+
 class DesktopApi:
     """Called from the page as window.pywebview.api.* (pywebview's JavaScript bridge)."""
 
     def __init__(self) -> None:
         self._window = None
         self._fullscreen = False
+        _enable_webview_dnd()
 
     def set_fullscreen(self, on: bool) -> bool:
         """The video player went (or left) fullscreen: make the whole window follow."""
@@ -442,6 +460,61 @@ class DesktopApi:
         """Clipboard text for the "Paste" context menu (None: let the page try its own clipboard API)."""
         try:
             return read_clipboard_text()
+        except Exception:
+            return None
+
+    def resolve_dropped_file(self, filename: str = "") -> Optional[str]:
+        """Full disk path for a file just dropped into the window, or None when unavailable."""
+        _enable_webview_dnd()
+        try:
+            from urllib.parse import unquote
+            from webview.dom import _dnd_state
+        except Exception:
+            return None
+
+        target = (filename or "").strip()
+        for _ in range(10):
+            paths = list(_dnd_state.get("paths") or [])
+            if paths:
+                matched = None
+                for item in paths:
+                    if not isinstance(item, (tuple, list)) or len(item) < 2:
+                        continue
+                    base, full = str(item[0]), str(item[1])
+                    if not target or base == target or unquote(base) == target:
+                        matched = item
+                        break
+                if matched is None and len(paths) == 1 and isinstance(paths[0], (tuple, list)) and len(paths[0]) >= 2:
+                    matched = paths[0]
+                if matched is not None:
+                    _dnd_state["paths"].clear()
+                    raw_path = str(matched[1])
+                    if Path(raw_path).exists():
+                        return raw_path
+                    decoded = unquote(raw_path)
+                    if Path(decoded).exists():
+                        return decoded
+                    return raw_path
+            time.sleep(0.005)
+        return None
+
+    def pick_media_file(self) -> Optional[str]:
+        """Open a native file picker for local media; returns the path, '' if cancelled, or None if unavailable."""
+        if self._window is None:
+            return None
+        try:
+            import webview
+
+            dialog_type = getattr(getattr(webview, "FileDialog", None), "OPEN", getattr(webview, "OPEN_DIALOG", 10))
+            picked = self._window.create_file_dialog(
+                dialog_type,
+                allow_multiple=False,
+                file_types=MEDIA_FILE_TYPES,
+            )
+            if not picked:
+                return ""
+            first = picked[0] if isinstance(picked, (list, tuple)) else str(picked)
+            return str(first) if first else ""
         except Exception:
             return None
 
