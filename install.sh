@@ -16,7 +16,7 @@ echo "[*] Detected OS: $OS ($(uname -m))"
 # 1. System Prerequisites (Python 3.11+, Node.js 20+, FFmpeg)
 # -----------------------------------------------------------------------------
 echo
-echo "[1/4] Checking system prerequisites..."
+echo "[1/5] Checking system prerequisites..."
 
 find_python() {
     for cmd in python3.12 python3.13 python3.11 python3; do
@@ -123,7 +123,7 @@ echo "    - Node.js: $(node -v) (npm $(npm -v))"
 # 2. Backend Python Virtual Environment & Dependencies
 # -----------------------------------------------------------------------------
 echo
-echo "[2/4] Setting up Python virtual environment (backend/.venv)..."
+echo "[2/5] Setting up Python virtual environment (backend/.venv)..."
 
 VENV_PY="backend/.venv/bin/python"
 if command -v uv >/dev/null 2>&1; then
@@ -161,18 +161,18 @@ fi
 # -----------------------------------------------------------------------------
 echo
 if [[ ! -f "backend/.env" ]]; then
-    echo "[3/4] Creating backend/.env from template..."
+    echo "[3/5] Creating backend/.env from template..."
     cp "backend/.env.example" "backend/.env"
     echo "      Remember to set GEMINI_API_KEY in backend/.env (or enter it in the UI)."
 else
-    echo "[3/4] Configuration file backend/.env already exists."
+    echo "[3/5] Configuration file backend/.env already exists."
 fi
 
 # -----------------------------------------------------------------------------
 # 4. Frontend Build
 # -----------------------------------------------------------------------------
 echo
-echo "[4/4] Installing and building frontend studio..."
+echo "[4/5] Installing and building frontend studio..."
 pushd frontend >/dev/null
 npm install
 npm run build
@@ -182,11 +182,56 @@ chmod +x "$SCRIPT_DIR/run.sh" "$SCRIPT_DIR/install.sh" 2>/dev/null || true
 [[ -f "$SCRIPT_DIR/run.command" ]] && chmod +x "$SCRIPT_DIR/run.command" 2>/dev/null || true
 [[ -f "$SCRIPT_DIR/install.command" ]] && chmod +x "$SCRIPT_DIR/install.command" 2>/dev/null || true
 
+# -----------------------------------------------------------------------------
+# 5. Application / Desktop Shortcut
+# -----------------------------------------------------------------------------
+echo
+DO_SHORTCUT="y"
+for arg in "$@"; do
+    if [[ "$arg" == "--no-shortcut" ]]; then
+        DO_SHORTCUT="n"
+    elif [[ "$arg" == "--yes" || "$arg" == "-y" || "$arg" == "--shortcut" ]]; then
+        DO_SHORTCUT="y"
+    fi
+done
+
+if [[ "$DO_SHORTCUT" == "y" ]]; then
+    IS_AUTO=0
+    for arg in "$@"; do
+        if [[ "$arg" == "--yes" || "$arg" == "-y" || "$arg" == "--shortcut" ]]; then
+            IS_AUTO=1
+            break
+        fi
+    done
+    if [[ "$IS_AUTO" -eq 0 ]]; then
+        if [[ "$OS" == "Darwin" ]]; then
+            read -r -p "Add SubBuild Studio to Applications menu? [Y/n] " REPLY || REPLY="y"
+        else
+            read -r -p "Add SubBuild Studio to installed applications menu? [Y/n] " REPLY || REPLY="y"
+        fi
+        if [[ -n "$REPLY" && ! "$REPLY" =~ ^[Yy]$ ]]; then
+            DO_SHORTCUT="n"
+        fi
+    fi
+fi
+
+if [[ "$DO_SHORTCUT" == "y" ]]; then
+    echo "[5/5] Creating application shortcut..."
+    "$VENV_PY" packaging/create_shortcut.py || echo "    [Warning] Could not create shortcut (non-critical)."
+else
+    echo "[5/5] Application shortcut skipped."
+fi
+
 echo
 echo "==================================================="
 echo " Installation complete!"
-echo " Start SubBuild Studio anytime with:  ./run.sh"
 if [[ "$OS" == "Darwin" ]]; then
-    echo " (or double-click run.command in Finder)"
+    echo " SubBuild Studio is now in your Applications menu"
+    echo " (or double-click run.command in Finder / run ./run.sh)"
+elif [[ "$OS" == "Linux" ]]; then
+    echo " SubBuild Studio is now in your Applications menu"
+    echo " (or run ./run.sh anytime)"
+else
+    echo " Start SubBuild Studio anytime with:  ./run.sh"
 fi
 echo "==================================================="
