@@ -147,7 +147,7 @@ Pipeline per job: **Probe → Audio → Transcribe → On-screen text** *(option
 SubBuild Studio/
 ├── SPEC.md                     # Architecture, tech stack and design decisions
 ├── README.md                   # Setup and usage guide
-├── install.bat / run.bat / SubBuild Studio.bat # One-click Windows installer & launchers
+├── install.bat / run.bat       # One-click Windows installer & launcher
 ├── install.sh / run.sh         # One-click Linux & macOS installer & launcher
 ├── install.command / run.command # Double-clickable macOS Finder wrappers
 ├── build_exe.bat               # Builds the standalone desktop app (dist\SubBuild Studio\)
@@ -309,7 +309,7 @@ npm run build
 > 💡 **Recommendation for Best Experience:** Always prefer running SubBuild Studio in its **native desktop window** (`SubBuild Studio.exe`, `run.bat`, or `./run.sh --window`) rather than a regular web browser. In the desktop window, dragging & dropping a video or clicking to browse reads the file's **direct local path** in place (0 seconds wait, 0 GB copied to temp/uploads, and full support for *Save next to video*), clipboard paste works without browser permission prompts, and video fullscreen controls the window directly.
 
 ### Option A1: One-click (Windows — Recommended)
-Run `install.bat` (first-time setup) or simply double-click `run.bat` (or `SubBuild Studio.bat`). During installation, you will be prompted to create a desktop shortcut with the official SubBuild Studio icon. The launcher creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the console server and open the studio in your browser.
+Run `install.bat` (first-time setup) or simply double-click `run.bat`. During installation, you will be prompted to create a desktop shortcut with the official SubBuild Studio icon. The launcher creates the virtual environment if needed, rebuilds the frontend whenever its sources changed, and opens the studio in its own app window (Edge WebView2, no browser, no console) with a tray icon. Your API key and projects stay in `backend\.env` and `backend\storage`. Run `run.bat --browser` to get the console server and open the studio in your browser.
 
 ### Option A2: One-click (Linux & macOS)
 Run the installer once, then start the studio with `./run.sh` (or on macOS, double-click `install.command` and `run.command` directly in Finder). During installation, the installer offers to add SubBuild Studio directly to your Applications menu (Launchpad on macOS / application launcher on Linux) with the official application icon:
